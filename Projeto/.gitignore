@@ -1,0 +1,39 @@
+# ===================== BAREMA ITEM 1: ARQUITETURA =====================
+# Arquivos e diretórios que não devem ser versionados
+
+# Dados da blockchain
+data/
+*.db
+*.ldb
+
+# Keystore (carteiras - contém chaves privadas!)
+keystore/
+*.key
+
+# Arquivos compilados
+build/
+*.bin
+*.abi
+
+# Binários Go
+*.exe
+jogo-cartas
+cliente/jogo-cartas
+
+# Logs
+*.log
+
+# Arquivos temporários
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
