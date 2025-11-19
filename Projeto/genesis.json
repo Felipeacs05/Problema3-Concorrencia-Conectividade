@@ -10,18 +10,10 @@
     "petersburgBlock": 0,
     "istanbulBlock": 0,
     "berlinBlock": 0,
-    "londonBlock": 0,
-    "clique": {
-      "period": 5,
-      "epoch": 30000
-    }
+    "londonBlock": 0
   },
-  "difficulty": "0x1",
+  "difficulty": "0x400",
   "gasLimit": "0x8000000",
-  "alloc": {
-    "0x0000000000000000000000000000000000000000": {
-      "balance": "0x2000000000000000000000000000000000000000000000000000000000000"
-    }
-  }
+  "alloc": {}
 }
 
