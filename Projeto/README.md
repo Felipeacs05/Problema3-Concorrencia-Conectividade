@@ -10,7 +10,7 @@ O sistema foi projetado para rodar em uma rede local (laboratório) via switch, 
 
 ## ✨ Funcionalidades Implementadas
 
-* **Blockchain Privada Ethereum:** Rede local usando Geth (Go Ethereum) com configuração Proof of Authority (Clique) para mineração rápida.
+* **Blockchain Privada Ethereum:** Rede local usando Geth (Go Ethereum) com configuração Proof of Work (PoW) com dificuldade baixa para mineração rápida.
 * **Smart Contracts (Solidity):** Contrato `GameEconomy.sol` que gerencia:
   * **NFTs de Cartas:** Cada carta é um token não-fungível (ERC-721 simplificado) com propriedade única e verificável.
   * **Compra de Pacotes:** Sistema que previne duplo gasto através de atomicidade de transações, usando block hash como fonte de aleatoriedade.
@@ -48,6 +48,352 @@ Antes de começar, certifique-se de ter instalado:
 
 ## 🚀 Como Executar o Projeto
 
+### 📋 Comandos Rápidos por Sistema Operacional
+
+---
+
+## 🪟 WINDOWS
+
+### Primeira Vez (Configuração Inicial)
+
+```cmd
+REM 1. Navegue até a pasta do projeto
+cd "C:\Users\bluti\OneDrive\Desktop\UEFS\5 Semestre\MI - Concorrência e Conectividade\Problema3-Concorrencia-Conectividade\Projeto"
+
+REM 2. Cria diretório de dados
+mkdir data
+
+REM 3. Inicializa blockchain com genesis.json
+docker-compose run --rm geth --datadir /root/.ethereum init /genesis.json
+
+REM 4. Cria conta (use o script para evitar problemas de senha)
+cd scripts
+criar-conta-simples.bat
+REM Ou use: criar-conta.bat (para escolher sua própria senha)
+cd ..
+
+REM 5. Inicia o nó Geth em background
+docker-compose up -d geth
+
+REM 6. Aguarda alguns segundos para o nó inicializar
+timeout /t 10 /nobreak
+
+REM 7. Verifica se está funcionando
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
+
+REM 8. Verifica se está minerando
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
+
+REM 9. Se não estiver minerando, inicia manualmente
+docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
+
+REM 10. Aguarda 20 segundos e verifica saldo
+timeout /t 20 /nobreak
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
+
+REM 11. Compila o cliente Go
+cd cliente
+go mod download
+go build -o jogo-cartas.exe main.go
+
+REM 12. Executa o cliente
+jogo-cartas.exe
+```
+
+### Outras Vezes (Uso Diário)
+
+```cmd
+REM 1. Navegue até a pasta do projeto
+cd "C:\Users\bluti\OneDrive\Desktop\UEFS\5 Semestre\MI - Concorrência e Conectividade\Problema3-Concorrencia-Conectividade\Projeto"
+
+REM 2. Inicia o nó Geth (se não estiver rodando)
+docker-compose up -d geth
+
+REM 3. Verifica se está rodando
+docker ps
+
+REM 4. Se precisar verificar mineração
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
+
+REM 5. Se precisar iniciar mineração
+docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
+
+REM 6. Executa o cliente (se já compilado)
+cd cliente
+jogo-cartas.exe
+
+REM Ou recompila se necessário:
+go build -o jogo-cartas.exe main.go
+jogo-cartas.exe
+```
+
+### Comandos Úteis (Windows)
+
+```cmd
+REM Ver logs do Geth
+docker-compose logs -f geth
+
+REM Parar o nó
+docker-compose down
+
+REM Reiniciar o nó
+docker-compose restart geth
+
+REM Acessar console do Geth
+docker exec -it geth-node geth attach http://localhost:8545
+
+REM Ver saldo
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
+
+REM Ver número de blocos
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
+
+REM Listar contas
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.accounts"
+```
+
+---
+
+## 🐧 LINUX (Ubuntu/Debian)
+
+### Primeira Vez (Configuração Inicial)
+
+```bash
+# 1. Navegue até a pasta do projeto
+cd ~/Problema3-Concorrencia-Conectividade/Projeto/
+
+# 2. Cria diretório de dados
+mkdir -p data
+
+# 3. Inicializa blockchain com genesis.json
+docker-compose run --rm geth --datadir /root/.ethereum init /genesis.json
+
+# 4. Cria conta (senha será solicitada)
+docker-compose run --rm geth --datadir /root/.ethereum account new
+# Digite uma senha quando solicitado
+# ANOTE O ENDEREÇO RETORNADO!
+
+# 5. Inicia o nó Geth em background
+docker-compose up -d geth
+
+# 6. Aguarda alguns segundos para o nó inicializar
+sleep 10
+
+# 7. Verifica se está funcionando
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
+
+# 8. Verifica se está minerando
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
+
+# 9. Se não estiver minerando, inicia manualmente
+docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
+
+# 10. Aguarda 20 segundos e verifica saldo
+sleep 20
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
+
+# 11. Compila o cliente Go
+cd cliente/
+go mod download
+go build -o jogo-cartas main.go
+chmod +x jogo-cartas
+
+# 12. Executa o cliente
+./jogo-cartas
+```
+
+### Outras Vezes (Uso Diário)
+
+```bash
+# 1. Navegue até a pasta do projeto
+cd ~/Problema3-Concorrencia-Conectividade/Projeto/
+
+# 2. Inicia o nó Geth (se não estiver rodando)
+docker-compose up -d geth
+
+# 3. Verifica se está rodando
+docker ps
+
+# 4. Se precisar verificar mineração
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
+
+# 5. Se precisar iniciar mineração
+docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
+
+# 6. Executa o cliente (se já compilado)
+cd cliente/
+./jogo-cartas
+
+# Ou recompila se necessário:
+go build -o jogo-cartas main.go
+./jogo-cartas
+```
+
+### Comandos Úteis (Linux)
+
+```bash
+# Ver logs do Geth
+docker-compose logs -f geth
+
+# Parar o nó
+docker-compose down
+
+# Reiniciar o nó
+docker-compose restart geth
+
+# Acessar console do Geth
+docker exec -it geth-node geth attach http://localhost:8545
+
+# Ver saldo
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
+
+# Ver número de blocos
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
+
+# Listar contas
+docker exec geth-node geth attach http://localhost:8545 --exec "eth.accounts"
+
+# Obter enode (para conectar outros nós)
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.nodeInfo.enode"
+
+# Ver peers conectados
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.peers"
+```
+
+---
+
+## 🔗 Conectar Múltiplos Nós (Rede P2P)
+
+### No Primeiro Computador (Bootnode)
+
+**Windows:**
+```cmd
+REM 1. Inicia o nó normalmente
+docker-compose up -d geth
+
+REM 2. Obtenha seu IP local
+ipconfig
+REM Procure por "IPv4 Address" (ex: 192.168.1.100)
+
+REM 3. Obtenha o enode
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.nodeInfo.enode"
+
+REM 4. Substitua [::] pelo seu IP real no enode
+REM Exemplo: enode://abc...@192.168.1.100:30303
+```
+
+**Linux:**
+```bash
+# 1. Inicia o nó normalmente
+docker-compose up -d geth
+
+# 2. Obtenha seu IP local
+hostname -I
+# Ou: ip addr show
+
+# 3. Obtenha o enode
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.nodeInfo.enode"
+
+# 4. Substitua [::] pelo seu IP real no enode
+# Exemplo: enode://abc...@192.168.1.100:30303
+```
+
+### No Segundo Computador (Peer)
+
+**Windows:**
+```cmd
+REM 1. Inicialize normalmente (passos 1-4 da "Primeira Vez")
+
+REM 2. Edite docker-compose.yml e adicione ao command:
+REM --bootnodes=enode://abc...@192.168.1.100:30303
+
+REM 3. Inicia o nó
+docker-compose up -d geth
+
+REM 4. Verifica conexão
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.peers"
+```
+
+**Linux:**
+```bash
+# 1. Inicialize normalmente (passos 1-4 da "Primeira Vez")
+
+# 2. Use variável de ambiente ou edite docker-compose.yml
+export BOOTNODE_ENODE="enode://abc...@192.168.1.100:30303"
+docker-compose up -d geth
+
+# 3. Verifica conexão
+docker exec geth-node geth attach http://localhost:8545 --exec "admin.peers"
+```
+
+---
+
+## 📦 Deploy do Smart Contract
+
+### Opção 1: Usando Hardhat (Recomendado)
+
+**Windows:**
+```cmd
+REM 1. Instale Node.js: https://nodejs.org/
+
+REM 2. Instale Hardhat
+npm install --save-dev hardhat
+
+REM 3. Crie projeto
+npx hardhat init
+REM Escolha: "Create a JavaScript project"
+
+REM 4. Copie o contrato
+copy contracts\GameEconomy.sol hardhat-project\contracts\
+
+REM 5. Compile
+cd hardhat-project
+npx hardhat compile
+
+REM 6. Configure hardhat.config.js:
+REM networks: {
+REM   localhost: { url: "http://localhost:8545" }
+REM }
+
+REM 7. Crie scripts/deploy.js e execute:
+npx hardhat run scripts/deploy.js --network localhost
+```
+
+**Linux:**
+```bash
+# 1. Instale Node.js
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 2. Instale Hardhat
+npm install --save-dev hardhat
+
+# 3. Crie projeto
+npx hardhat init
+
+# 4. Copie o contrato
+cp contracts/GameEconomy.sol hardhat-project/contracts/
+
+# 5. Compile
+cd hardhat-project
+npx hardhat compile
+
+# 6. Configure hardhat.config.js e faça deploy
+npx hardhat run scripts/deploy.js --network localhost
+```
+
+### Opção 2: Usando Remix (Online)
+
+1. Acesse: https://remix.ethereum.org/
+2. Cole o código do contrato `GameEconomy.sol`
+3. Compile
+4. Conecte à rede local (Web3 Provider: http://localhost:8545)
+5. Faça deploy
+
+---
+
+## 🚀 Como Executar o Projeto (Guia Detalhado)
+
 ### Passo 1: Clone o Repositório
 
 ```bash
@@ -60,9 +406,11 @@ cd Problema3-Concorrencia-Conectividade/Projeto/
 O arquivo `genesis.json` já está incluído no projeto. Ele configura uma rede privada com:
 
 * **Chain ID:** 1337
-* **Consenso:** Proof of Authority (Clique) com período de 5 segundos
-* **Dificuldade:** Muito baixa (0x1) para mineração rápida
+* **Consenso:** Proof of Work (PoW) - não requer signers pré-configurados
+* **Dificuldade:** Baixa (0x400) para mineração rápida em PCs de laboratório
 * **Gas Limit:** Alto (0x8000000) para suportar contratos complexos
+
+**Nota:** O genesis.json foi configurado para PoW (não Clique) para facilitar a configuração inicial. Qualquer um pode minerar sem necessidade de configurar signers.
 
 Se precisar personalizar, edite `genesis.json` antes de continuar.
 
@@ -230,7 +578,7 @@ O cliente oferece um menu interativo com as seguintes opções:
 
 Edite `genesis.json` para alterar:
 * **Chain ID:** Altere `chainId` para um valor único
-* **Período de Mineração:** Altere `clique.period` (em segundos)
+* **Dificuldade:** Altere `difficulty` (valores menores = mineração mais rápida)
 * **Saldo Inicial:** Adicione endereços em `alloc` com saldos iniciais
 
 ### Conectar Múltiplos Peers

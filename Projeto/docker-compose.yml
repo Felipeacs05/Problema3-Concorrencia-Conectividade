@@ -3,8 +3,6 @@
 # Utiliza network_mode: host para permitir comunicação P2P entre máquinas no laboratório.
 # A rede privada permite mineração rápida e controle total sobre a economia do jogo.
 
-version: '3.8'
-
 services:
   # ===================== Nó Ethereum (Geth) =====================
   # BAREMA ITEM 1: ARQUITETURA - Container do nó Ethereum privado
