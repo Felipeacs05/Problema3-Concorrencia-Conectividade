@@ -45,6 +45,16 @@ const (
 	gasLimit = uint64(3000000)
 )
 
+// Representa uma carta do jogo
+type Carta struct {
+	ID        *big.Int
+	Nome      string
+	Naipe     string
+	Valor     *big.Int
+	Raridade  string
+	Timestamp *big.Int
+}
+
 var (
 	client           *ethclient.Client
 	rpcClient        *rpc.Client
@@ -53,6 +63,7 @@ var (
 	enderecoContrato common.Address
 	contractABI      abi.ABI
 	senhaConta       string // Guarda a senha da conta atual
+	abiPath          = "../contracts/GameEconomy.abi" // Caminho para o arquivo ABI
 )
 
 // ===================== Função Principal =====================
@@ -503,6 +514,99 @@ func aguardarConfirmacao(txHash common.Hash) (*types.Receipt, error) {
 	}
 }
 
+// ===================== Funções de Contrato =====================
+
+// Carrega o ABI do contrato
+func carregarABI() error {
+	// Lê o arquivo ABI
+	abiBytes, err := ioutil.ReadFile(abiPath)
+	if err != nil {
+		return fmt.Errorf("erro ao ler arquivo ABI: %v", err)
+	}
+
+	// Parse o ABI JSON
+	parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
+	if err != nil {
+		return fmt.Errorf("erro ao fazer parse do ABI: %v", err)
+	}
+
+	contractABI = parsedABI
+	return nil
+}
+
+// Obtém o inventário de cartas de um jogador
+func obterInventario(jogador common.Address) ([]*big.Int, error) {
+	// Prepara a chamada à função obterInventario do contrato
+	data, err := contractABI.Pack("obterInventario", jogador)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao preparar chamada: %v", err)
+	}
+
+	// Faz a chamada ao contrato
+	msg := ethereum.CallMsg{
+		To:   &enderecoContrato,
+		Data: data,
+	}
+
+	result, err := client.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao chamar contrato: %v", err)
+	}
+
+	// Desempacota o resultado
+	var inventario []*big.Int
+	err = contractABI.UnpackIntoInterface(&inventario, "obterInventario", result)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
+	}
+
+	return inventario, nil
+}
+
+// Obtém os dados de uma carta
+func obterCarta(tokenId *big.Int) (*Carta, error) {
+	// Prepara a chamada à função obterCarta do contrato
+	data, err := contractABI.Pack("obterCarta", tokenId)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao preparar chamada: %v", err)
+	}
+
+	// Faz a chamada ao contrato
+	msg := ethereum.CallMsg{
+		To:   &enderecoContrato,
+		Data: data,
+	}
+
+	result, err := client.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao chamar contrato: %v", err)
+	}
+
+	// Desempacota o resultado
+	var cartaData struct {
+		ID        *big.Int
+		Nome      string
+		Naipe     string
+		Valor     *big.Int
+		Raridade  string
+		Timestamp *big.Int
+	}
+
+	err = contractABI.UnpackIntoInterface(&cartaData, "obterCarta", result)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
+	}
+
+	return &Carta{
+		ID:        cartaData.ID,
+		Nome:      cartaData.Nome,
+		Naipe:     cartaData.Naipe,
+		Valor:     cartaData.Valor,
+		Raridade:  cartaData.Raridade,
+		Timestamp: cartaData.Timestamp,
+	}, nil
+}
+
 // ===================== Funções de Interface =====================
 
 // BAREMA ITEM 3: APLICAÇÃO CLIENTE - Exibe o menu principal
@@ -572,9 +676,59 @@ func verSaldoECartas() {
 		return
 	}
 
-	// Aqui chamaríamos a função do contrato para listar cartas
-	// Como não temos o ABI compilado Go aqui, simulamos ou usamos raw call
-	color.Yellow("⚠ Leitura de cartas requer ABI do contrato. Implementar leitura de eventos ou view functions.\n")
+	// Carrega o ABI se ainda não foi carregado
+	if len(contractABI.Methods) == 0 {
+		err := carregarABI()
+		if err != nil {
+			color.Yellow("⚠ Não foi possível carregar o ABI: %v\n", err)
+			color.Yellow("   Execute o script compile-contract.bat para gerar o ABI.\n")
+			return
+		}
+	}
+
+	// Obtém o inventário do jogador
+	color.Yellow("\n📦 Suas Cartas:\n")
+	inventario, err := obterInventario(contaAtual)
+	if err != nil {
+		color.Red("Erro ao obter inventário: %v\n", err)
+		return
+	}
+
+	if len(inventario) == 0 {
+		color.Yellow("   Você ainda não possui cartas. Compre um pacote!\n")
+		return
+	}
+
+	// Lista as cartas
+	for i, tokenId := range inventario {
+		carta, err := obterCarta(tokenId)
+		if err != nil {
+			color.Red("Erro ao obter carta #%d: %v\n", tokenId, err)
+			continue
+		}
+		
+		cor := color.New(color.FgWhite).SprintFunc()
+		switch carta.Raridade {
+		case "Comum":
+			cor = color.New(color.FgWhite).SprintFunc()
+		case "Rara":
+			cor = color.New(color.FgCyan).SprintFunc()
+		case "Épica":
+			cor = color.New(color.FgMagenta).SprintFunc()
+		case "Lendária":
+			cor = color.New(color.FgYellow).SprintFunc()
+		}
+		
+		fmt.Printf("   %d. %s - %s (%s) - Poder: %d\n", 
+			i+1, 
+			cor(carta.Nome), 
+			carta.Naipe, 
+			cor(carta.Raridade), 
+			carta.Valor,
+		)
+	}
+	
+	fmt.Printf("\nTotal de cartas: %d\n", len(inventario))
 }
 
 // BAREMA ITEM 3: APLICAÇÃO CLIENTE - Compra pacote de cartas
@@ -694,14 +848,6 @@ func configurarContrato() {
 			color.Red("✗ Endereço inválido!\n")
 		}
 	}
-}
-
-// Estruturas auxiliares para cartas (simulação)
-type Carta struct {
-	ID    *big.Int
-	Nome  string
-	Naipe string
-	Valor *big.Int
 }
 
 // Simulação de batalha entre cartas
