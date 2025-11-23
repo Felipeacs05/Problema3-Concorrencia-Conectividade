@@ -18,8 +18,19 @@ import (
 
 type GenesisConfig struct {
 	Config struct {
-		ChainID int `json:"chainId"`
-		Clique  struct {
+		ChainID            int `json:"chainId"`
+		HomesteadBlock     int `json:"homesteadBlock"`
+		EIP150Block        int `json:"eip150Block"`
+		EIP155Block        int `json:"eip155Block"`
+		EIP158Block        int `json:"eip158Block"`
+		ByzantiumBlock     int `json:"byzantiumBlock"`
+		ConstantinopleBlock int `json:"constantinopleBlock"`
+		PetersburgBlock    int `json:"petersburgBlock"`
+		IstanbulBlock      int `json:"istanbulBlock"`
+		BerlinBlock        int `json:"berlinBlock"`
+		LondonBlock        int `json:"londonBlock"`
+		ShanghaiBlock      int `json:"shanghaiBlock"`
+		Clique             struct {
 			Period int `json:"period"`
 			Epoch  int `json:"epoch"`
 		} `json:"clique"`
@@ -90,6 +101,21 @@ func gerarGenesisJSON(signerAddress common.Address, genesisPath string) error {
 	
 	// Configuração básica
 	genesis.Config.ChainID = 1337
+	
+	// Configura todos os hard forks no bloco 0 (para suportar todas as features)
+	genesis.Config.HomesteadBlock = 0
+	genesis.Config.EIP150Block = 0
+	genesis.Config.EIP155Block = 0
+	genesis.Config.EIP158Block = 0
+	genesis.Config.ByzantiumBlock = 0
+	genesis.Config.ConstantinopleBlock = 0
+	genesis.Config.PetersburgBlock = 0
+	genesis.Config.IstanbulBlock = 0
+	genesis.Config.BerlinBlock = 0
+	genesis.Config.LondonBlock = 0
+	genesis.Config.ShanghaiBlock = 0 // Importante para suportar PUSH0 (Solidity 0.8.20+)
+	
+	// Configuração do Clique (PoA)
 	genesis.Config.Clique.Period = 5
 	genesis.Config.Clique.Epoch = 30000
 	

@@ -34,7 +34,7 @@ interface IERC721 {
 struct Carta {
     uint256 id;        // ID único do token (NFT)
     string nome;       // Nome da carta (ex: "Dragão", "Guerreiro")
-    string naipe;      // Naipe: "♠", "♥", "♦", "♣"
+    string naipe;      // Naipe: "Espadas", "Copas", "Ouros", "Paus"
     uint256 valor;     // Poder da carta (1-120)
     string raridade;   // "C" (Comum), "U" (Incomum), "R" (Rara), "L" (Lendária)
     uint256 timestamp; // Quando a carta foi criada
@@ -243,7 +243,10 @@ contract GameEconomy {
      * @dev Gera uma carta aleatória baseada em block hash
      * BAREMA ITEM 8: PACOTES - Usa blockhash como fonte de entropia para sorteio
      * @param _seed Seed adicional para aumentar aleatoriedade
-     * @return nome, naipe, valor, raridade Propriedades da carta gerada
+     * @return nome Nome da carta gerada
+     * @return naipe Naipe da carta gerada
+     * @return valor Valor/poder da carta gerada
+     * @return raridade Raridade da carta gerada
      */
     function _gerarCartaAleatoria(uint256 _seed) internal view returns (
         string memory nome,
@@ -262,8 +265,8 @@ contract GameEconomy {
             "Ranger", "Bruxo", "Druida", "Monge", "Assassino", "Bardo"
         ];
         
-        // Lista de naipes
-        string[4] memory naipes = ["♠", "♥", "♦", "♣"];
+        // Lista de naipes (usando nomes em vez de símbolos Unicode)
+        string[4] memory naipes = ["Espadas", "Copas", "Ouros", "Paus"];
         
         // BAREMA ITEM 8: PACOTES - Sorteia raridade (C=70%, U=20%, R=9%, L=1%)
         uint256 raridadeRoll = uint256(hash) % 100;

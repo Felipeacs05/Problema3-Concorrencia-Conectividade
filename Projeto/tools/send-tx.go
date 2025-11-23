@@ -46,18 +46,20 @@ func main() {
 	account := ks.Accounts()[0]
 	fmt.Printf("Conta: %s\n", account.Address.Hex())
 
-	// Desbloqueia a conta no Geth via RPC
-	var unlockResult bool
-	err = rpcClient.Call(&unlockResult, "personal_unlockAccount", account.Address, "123456", 0)
+	// Desbloqueia a conta no keystore Go
+	err = ks.Unlock(account, "123456")
 	if err != nil {
-		fmt.Printf("ERRO: Falha ao desbloquear conta no Geth: %v\n", err)
+		fmt.Printf("ERRO: Falha ao desbloquear conta no keystore: %v\n", err)
 		os.Exit(1)
 	}
-	if !unlockResult {
-		fmt.Println("ERRO: Falha ao desbloquear conta (senha incorreta?)")
-		os.Exit(1)
+	fmt.Println("Conta desbloqueada no keystore!")
+
+	// Desbloqueia a conta no Geth via RPC (opcional)
+	var unlockResult bool
+	rpcClient.Call(&unlockResult, "personal_unlockAccount", account.Address, "123456", 0)
+	if unlockResult {
+		fmt.Println("Conta desbloqueada no Geth também!")
 	}
-	fmt.Println("Conta desbloqueada no Geth!")
 
 	// Obtém nonce
 	nonce, err := client.PendingNonceAt(context.Background(), account.Address)
