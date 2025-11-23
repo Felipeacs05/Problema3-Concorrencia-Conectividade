@@ -309,8 +309,19 @@ func fazerDeployContrato() error {
 		return err
 	}
 
+	// Verifica se a transação foi bem-sucedida antes de calcular o endereço
+	receipt, err := client.TransactionReceipt(context.Background(), tx.Hash())
+	if err != nil {
+		return fmt.Errorf("erro ao obter receipt da transação: %v", err)
+	}
+
+	if receipt.Status == 0 {
+		return fmt.Errorf("transação falhou - contrato não foi deployado")
+	}
+
+	// Calcula o endereço do contrato a partir do endereço do remetente e nonce
 	enderecoContrato = crypto.CreateAddress(contaAtual, tx.Nonce())
-	color.Green("✓ Contrato configurado: %s\n", enderecoContrato.Hex())
+	color.Green("✓ Contrato deployado com sucesso: %s\n", enderecoContrato.Hex())
 
 	return nil
 }
@@ -553,10 +564,21 @@ func obterInventario(jogador common.Address) ([]*big.Int, error) {
 		return nil, fmt.Errorf("erro ao chamar contrato: %v", err)
 	}
 
+	// Verifica se o resultado está vazio
+	if len(result) == 0 {
+		// Retorna array vazio se não houver resultado
+		return []*big.Int{}, nil
+	}
+
 	// Desempacota o resultado
 	var inventario []*big.Int
 	err = contractABI.UnpackIntoInterface(&inventario, "obterInventario", result)
 	if err != nil {
+		// Se falhar, tenta verificar se é um array vazio
+		// Arrays vazios podem retornar apenas zeros
+		if len(result) > 0 && result[0] == 0 {
+			return []*big.Int{}, nil
+		}
 		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
 	}
 
