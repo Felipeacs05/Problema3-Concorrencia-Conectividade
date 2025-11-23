@@ -34,13 +34,16 @@ echo.
 echo [2/3] Compilando GameEconomy.sol...
 echo.
 
-REM Compila o contrato usando Docker
+REM Compila o contrato usando Docker (gera .bin e .abi)
 docker run --rm ^
     -v "%CONTRACTS_DIR%:/contracts" ^
     -w /contracts ^
     ethereum/solc:0.8.20 ^
-    --bin GameEconomy.sol ^
-    -o /contracts
+    --bin --abi ^
+    --optimize --optimize-runs 200 ^
+    -o /contracts ^
+    --overwrite ^
+    GameEconomy.sol
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERRO] Falha ao compilar contrato!
@@ -49,14 +52,26 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo [3/3] Verificando arquivo gerado...
+echo [3/3] Verificando arquivos gerados...
 
-REM Aguarda um pouco para garantir que o arquivo foi escrito
+REM Aguarda um pouco para garantir que os arquivos foram escritos
 timeout /t 2 /nobreak >nul 2>&1
 
-REM Verifica se o arquivo .bin foi criado
+REM Verifica se os arquivos foram criados
+set BIN_OK=0
+set ABI_OK=0
+
 if exist "%CONTRACTS_DIR%\GameEconomy.bin" (
     echo [OK] Bytecode gerado: contracts\GameEconomy.bin
+    set BIN_OK=1
+)
+
+if exist "%CONTRACTS_DIR%\GameEconomy.abi" (
+    echo [OK] ABI gerado: contracts\GameEconomy.abi
+    set ABI_OK=1
+)
+
+if %BIN_OK%==1 if %ABI_OK%==1 (
     echo.
     echo ========================================
     echo Compilacao concluida com sucesso!
@@ -66,18 +81,15 @@ if exist "%CONTRACTS_DIR%\GameEconomy.bin" (
     echo   - Execute o cliente Go
     echo   - Escolha opcao 6 (Deploy do Contrato)
     echo.
+    pause
+    exit /b 0
 ) else (
-    echo [AVISO] Verificando arquivos gerados...
-    dir "%CONTRACTS_DIR%\*.bin" 2>nul
-    if exist "%CONTRACTS_DIR%\GameEconomy.bin" (
-        echo [OK] Arquivo encontrado apos verificacao!
-    ) else (
-        echo [ERRO] Arquivo GameEconomy.bin nao foi gerado!
-        echo Verifique os erros de compilacao acima.
-        pause
-        exit /b 1
-    )
+    echo.
+    echo [ERRO] Alguns arquivos nao foram gerados!
+    if %BIN_OK%==0 echo   - GameEconomy.bin: FALTANDO
+    if %ABI_OK%==0 echo   - GameEconomy.abi: FALTANDO
+    echo.
+    echo Verifique os erros de compilacao acima.
+    pause
+    exit /b 1
 )
-
-pause
-
