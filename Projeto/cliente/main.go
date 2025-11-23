@@ -316,7 +316,14 @@ func fazerDeployContrato() error {
 	}
 
 	if receipt.Status == 0 {
-		return fmt.Errorf("transação falhou - contrato não foi deployado")
+		// Tenta obter mais informações sobre o erro
+		color.Red("✗ Transação falhou (status: 0)\n")
+		color.Yellow("Hash da transação: %s\n", tx.Hash().Hex())
+		color.Yellow("Gas usado: %d / %d\n", receipt.GasUsed, tx.Gas())
+		if len(receipt.Logs) == 0 {
+			color.Yellow("Nenhum log gerado - possível erro de execução do contrato\n")
+		}
+		return fmt.Errorf("transação falhou - contrato não foi deployado. Verifique o bytecode e o gas limit")
 	}
 
 	// Calcula o endereço do contrato a partir do endereço do remetente e nonce
