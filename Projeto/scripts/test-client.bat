@@ -12,14 +12,17 @@ echo.
 echo Pressione qualquer tecla para continuar...
 pause >nul
 
-cd ..\cliente
-if not exist cliente.exe (
-    echo [ERRO] cliente.exe nao encontrado!
-    echo Compile primeiro com: go build -o cliente.exe main.go
+cd ..
+echo Compilando cliente...
+go build -o cliente/cliente.exe ./cliente/main.go
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERRO] Falha na compilacao!
     pause
     exit /b 1
 )
-cliente.exe
+cd scripts
+
+..\cliente\cliente.exe
 
 pause
 

@@ -42,7 +42,8 @@ const (
 	keystorePath = "../data/keystore"
 
 	// BAREMA ITEM 3: APLICAÇÃO CLIENTE - Gas limit para transações
-	gasLimit = uint64(3000000)
+	// Aumentado para 100M para suportar deploy de contratos grandes
+	gasLimit = uint64(100000000)
 )
 
 // Representa uma carta do jogo
