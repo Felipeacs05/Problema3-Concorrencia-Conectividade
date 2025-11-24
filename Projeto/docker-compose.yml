@@ -39,10 +39,10 @@ services:
       - --ws.api=eth,net,web3,personal,miner
       - --ws.origins="*"
       - --allow-insecure-unlock
-      - --unlock=0x792A31E1989e59c226bcfaf3E151BD95Ab5e625F
+      - --unlock=0xB3b13B29a7c7BaF99735d465d1ED4e18833C198B
       - --password=/root/.ethereum/password.txt
       - --mine
-      - --miner.etherbase=0x792A31E1989e59c226bcfaf3E151BD95Ab5e625F
+      - --miner.etherbase=0xB3b13B29a7c7BaF99735d465d1ED4e18833C198B
     
     environment:
       # BAREMA ITEM 1: ARQUITETURA - Variável para conectar a outro nó (peer)
