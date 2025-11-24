@@ -43,8 +43,8 @@ const (
 	keystorePath = "../data/keystore"
 
 	// BAREMA ITEM 3: APLICAÇÃO CLIENTE - Gas limit para transações
-	// Ajustado para 90M (menor que o gas limit do bloco ~95M)
-	gasLimit = uint64(90000000)
+	// Ajustado para 80M (menor que o gas limit do bloco ~83M)
+	gasLimit = uint64(80000000)
 )
 
 // Representa uma carta do jogo
@@ -446,6 +446,30 @@ func enviarTransacaoNormal(data []byte, valor *big.Int) (*types.Transaction, err
 	if err != nil {
 		return nil, fmt.Errorf("erro ao obter gas price: %v", err)
 	}
+
+	// BAREMA ITEM 3: APLICAÇÃO CLIENTE - Estima gas necessário
+	var gasToUse uint64 = gasLimit
+	if enderecoContrato != (common.Address{}) {
+		// Para chamadas de contrato, estima o gas
+		msg := ethereum.CallMsg{
+			From:  contaAtual,
+			To:    &enderecoContrato,
+			Value: valor,
+			Data:  data,
+		}
+		gasEstimate, err := client.EstimateGas(context.Background(), msg)
+		if err == nil {
+			// Usa 120% da estimativa, mas não excede o gasLimit
+			gasToUse = gasEstimate * 120 / 100
+			if gasToUse > gasLimit {
+				gasToUse = gasLimit
+			}
+			// Garante um mínimo de 21000 (gas base)
+			if gasToUse < 21000 {
+				gasToUse = 21000
+			}
+		}
+	}
 	
 	// BAREMA ITEM 3: APLICAÇÃO CLIENTE - Obtém chain ID
 	chainID, err := client.NetworkID(context.Background())
@@ -457,10 +481,10 @@ func enviarTransacaoNormal(data []byte, valor *big.Int) (*types.Transaction, err
 	var tx *types.Transaction
 	if enderecoContrato == (common.Address{}) {
 		// Criação de contrato (to = nil)
-		tx = types.NewContractCreation(nonce, valor, gasLimit, gasPrice, data)
+		tx = types.NewContractCreation(nonce, valor, gasToUse, gasPrice, data)
 	} else {
 		// Chamada de contrato
-		tx = types.NewTransaction(nonce, enderecoContrato, valor, gasLimit, gasPrice, data)
+		tx = types.NewTransaction(nonce, enderecoContrato, valor, gasToUse, gasPrice, data)
 	}
 	
 	// BAREMA ITEM 3: APLICAÇÃO CLIENTE - Assina transação com chave privada
@@ -487,11 +511,35 @@ func enviarTransacaoViaRPC(data []byte, valor *big.Int) (*types.Transaction, err
 		return nil, fmt.Errorf("erro ao desbloquear conta: %v", err)
 	}
 	
+	// Estima gas necessário antes de enviar
+	var gasToUse uint64 = gasLimit
+	if enderecoContrato != (common.Address{}) {
+		msg := ethereum.CallMsg{
+			From:  contaAtual,
+			To:    &enderecoContrato,
+			Value: valor,
+			Data:  data,
+		}
+		gasEstimate, err := client.EstimateGas(context.Background(), msg)
+		if err == nil {
+			// Usa 120% da estimativa, mas não excede o gasLimit
+			gasToUse = gasEstimate * 120 / 100
+			if gasToUse > gasLimit {
+				gasToUse = gasLimit
+			}
+			if gasToUse < 21000 {
+				gasToUse = 21000
+			}
+		}
+	}
+
 	// Prepara parâmetros da transação
 	txParams := map[string]interface{}{
-		"from":  contaAtual.Hex(),
-		"value": fmt.Sprintf("0x%x", valor),
-		"data":  fmt.Sprintf("0x%x", data),
+		"from":     contaAtual.Hex(),
+		"value":    fmt.Sprintf("0x%x", valor),
+		"data":     fmt.Sprintf("0x%x", data),
+		"gas":      fmt.Sprintf("0x%x", gasToUse),
+		"gasPrice": fmt.Sprintf("0x%x", big.NewInt(1000000000)), // 1 gwei
 	}
 	
 	// Se for chamada de contrato, adiciona o endereço
@@ -624,9 +672,20 @@ func obterInventario(jogador common.Address) ([]*big.Int, error) {
 	// Se o offset for 0, o array está vazio
 	if len(result) >= 32 {
 		offset := new(big.Int).SetBytes(result[0:32])
+		// Offset de 0x20 (32) significa que o array começa no byte 32
+		// Offset de 0 significa array vazio
 		if offset.Cmp(big.NewInt(0)) == 0 {
 			// Array vazio
 			return []*big.Int{}, nil
+		}
+		// Se o offset for 0x20, o array começa no byte 32
+		// O próximo byte (32-63) contém o tamanho do array
+		if offset.Cmp(big.NewInt(32)) == 0 && len(result) >= 64 {
+			arraySize := new(big.Int).SetBytes(result[32:64])
+			if arraySize.Cmp(big.NewInt(0)) == 0 {
+				// Array vazio
+				return []*big.Int{}, nil
+			}
 		}
 	}
 
@@ -664,27 +723,73 @@ func obterInventario(jogador common.Address) ([]*big.Int, error) {
 	case []interface{}:
 		inventario = make([]*big.Int, 0, len(v))
 		for _, item := range v {
-			switch tokenId := item.(type) {
+			var tokenId *big.Int
+			switch t := item.(type) {
 			case *big.Int:
-				inventario = append(inventario, tokenId)
+				tokenId = t
 			case uint64:
-				inventario = append(inventario, big.NewInt(int64(tokenId)))
+				tokenId = big.NewInt(int64(t))
 			case int64:
-				inventario = append(inventario, big.NewInt(tokenId))
+				tokenId = big.NewInt(t)
+			case uint32:
+				tokenId = big.NewInt(int64(t))
+			case int32:
+				tokenId = big.NewInt(int64(t))
+			case uint:
+				tokenId = big.NewInt(int64(t))
+			case int:
+				tokenId = big.NewInt(int64(t))
 			default:
 				// Tenta converter via reflection
 				val := reflect.ValueOf(item)
 				if val.Kind() == reflect.Ptr {
 					val = val.Elem()
 				}
-				if val.Kind() == reflect.Uint64 || val.Kind() == reflect.Int64 {
-					inventario = append(inventario, big.NewInt(val.Int()))
+				switch val.Kind() {
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					tokenId = big.NewInt(int64(val.Uint()))
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					tokenId = big.NewInt(val.Int())
+				default:
+					// Se não conseguir converter, pula este item
+					continue
 				}
+			}
+			if tokenId != nil {
+				inventario = append(inventario, tokenId)
 			}
 		}
 		return inventario, nil
 	default:
-		return nil, fmt.Errorf("formato de resultado inesperado para obterInventario: %T", unpacked[0])
+		// Tenta usar reflection para acessar o array
+		val := reflect.ValueOf(unpacked[0])
+		if val.Kind() == reflect.Slice {
+			inventario = make([]*big.Int, 0, val.Len())
+			for i := 0; i < val.Len(); i++ {
+				elem := val.Index(i)
+				var tokenId *big.Int
+				if elem.Kind() == reflect.Interface {
+					elem = elem.Elem()
+				}
+				switch elem.Kind() {
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					tokenId = big.NewInt(int64(elem.Uint()))
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					tokenId = big.NewInt(elem.Int())
+				case reflect.Ptr:
+					if elem.Type().Elem().Name() == "Int" {
+						tokenId = elem.Interface().(*big.Int)
+					}
+				}
+				if tokenId != nil {
+					inventario = append(inventario, tokenId)
+				}
+			}
+			if len(inventario) > 0 {
+				return inventario, nil
+			}
+		}
+		return nil, fmt.Errorf("formato de resultado inesperado para obterInventario: %T (valor: %v)", unpacked[0], unpacked[0])
 	}
 }
 
@@ -952,10 +1057,29 @@ func comprarPacote() {
 		return
 	}
 
-	_, err = enviarTransacao(data, valor)
+	tx, err := enviarTransacao(data, valor)
 	if err != nil {
 		color.Red("Erro na compra: %v\n", err)
+		return
 	}
+
+	// Aguarda confirmação da transação
+	color.Cyan("Transação enviada: %s\n", tx.Hash().Hex())
+	color.Yellow("Aguardando confirmação...\n")
+	
+	receipt, err := aguardarConfirmacao(tx.Hash())
+	if err != nil {
+		color.Red("Erro ao aguardar confirmação: %v\n", err)
+		return
+	}
+
+	if receipt.Status == 0 {
+		color.Red("✗ Transação falhou! Gas usado: %d / %d\n", receipt.GasUsed, tx.Gas())
+		return
+	}
+
+	color.Green("✓ Pacote comprado com sucesso! Gas usado: %d\n", receipt.GasUsed)
+	color.Yellow("Aguarde alguns segundos e verifique suas cartas na opção 1.\n")
 }
 
 // BAREMA ITEM 3: APLICAÇÃO CLIENTE - Troca de cartas
