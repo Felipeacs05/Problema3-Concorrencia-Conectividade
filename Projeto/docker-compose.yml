@@ -41,6 +41,7 @@ services:
       - --allow-insecure-unlock
       - --unlock=0x792A31E1989e59c226bcfaf3E151BD95Ab5e625F
       - --password=/root/.ethereum/password.txt
+      - --mine
       - --miner.etherbase=0x792A31E1989e59c226bcfaf3E151BD95Ab5e625F
     
     environment:

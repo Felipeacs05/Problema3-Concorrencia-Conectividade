@@ -24,7 +24,8 @@ echo console.log^("Conta: " + account^);
 echo var result = personal.unlockAccount(account, "123456", 0^);
 echo if ^(result^) {
 echo   console.log^("SUCCESS: Conta desbloqueada permanentemente!"^);
-echo   console.log^("O Clique deve comecar a selar blocos automaticamente."^);
+echo   miner.start^();
+echo   console.log^("Minerador iniciado (miner.start)"^);
 echo } else {
 echo   console.log^("ERRO: Falha ao desbloquear conta!"^);
 echo   console.log^("Verifique se a senha esta correta (padrao: 123456)"^);
