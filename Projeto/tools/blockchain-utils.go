@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -153,6 +154,33 @@ func criarArquivoSenha(password, filePath string) error {
 	return os.WriteFile(filePath, []byte(password), 0644)
 }
 
+// atualizarDockerCompose atualiza o docker-compose.yml com o novo endereço do signer
+func atualizarDockerCompose(signerAddress common.Address, dockerComposePath string) error {
+	// Lê o arquivo docker-compose.yml
+	content, err := os.ReadFile(dockerComposePath)
+	if err != nil {
+		return fmt.Errorf("erro ao ler docker-compose.yml: %v", err)
+	}
+	
+	contentStr := string(content)
+	addressHex := signerAddress.Hex()
+	
+	// Regex para encontrar endereços Ethereum no formato 0x seguido de 40 caracteres hex
+	// Procura por padrões como --unlock=0x... ou --miner.etherbase=0x...
+	addressPattern := regexp.MustCompile(`0x[0-9a-fA-F]{40}`)
+	
+	// Substitui todos os endereços encontrados pelo novo endereço
+	contentStr = addressPattern.ReplaceAllString(contentStr, addressHex)
+	
+	// Salva o arquivo atualizado
+	err = os.WriteFile(dockerComposePath, []byte(contentStr), 0644)
+	if err != nil {
+		return fmt.Errorf("erro ao salvar docker-compose.yml: %v", err)
+	}
+	
+	return nil
+}
+
 // ===================== Função Main =====================
 
 func main() {
@@ -162,6 +190,7 @@ func main() {
 		fmt.Println("  criar-conta <keystore-path> [senha]")
 		fmt.Println("  gerar-genesis <keystore-path> <genesis-path>")
 		fmt.Println("  extrair-endereco <keystore-path>")
+		fmt.Println("  atualizar-docker-compose <endereco> <docker-compose-path>")
 		os.Exit(1)
 	}
 	
@@ -237,6 +266,30 @@ func main() {
 		}
 		
 		fmt.Println(address.Hex())
+		
+	case "atualizar-docker-compose":
+		if len(os.Args) < 4 {
+			fmt.Println("Erro: forneça o endereço e o caminho do docker-compose.yml")
+			fmt.Println("Uso: blockchain-utils atualizar-docker-compose <endereco> <docker-compose-path>")
+			os.Exit(1)
+		}
+		
+		addressStr := os.Args[2]
+		dockerComposePath := os.Args[3]
+		
+		address := common.HexToAddress(addressStr)
+		if address == (common.Address{}) {
+			fmt.Printf("ERRO: endereço inválido: %s\n", addressStr)
+			os.Exit(1)
+		}
+		
+		err := atualizarDockerCompose(address, dockerComposePath)
+		if err != nil {
+			fmt.Printf("ERRO: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("✓ docker-compose.yml atualizado com endereço: %s\n", address.Hex())
 		
 	default:
 		fmt.Printf("Erro: comando desconhecido: %s\n", comando)
