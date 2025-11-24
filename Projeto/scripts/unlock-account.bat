@@ -5,7 +5,7 @@ REM Script para desbloquear conta no Clique (Windows)
 setlocal enabledelayedexpansion
 
 set SCRIPT_DIR=%~dp0
-set TEMP_FILE=%SCRIPT_DIR%temp_unlock.js
+set TEMP_FILE=%TEMP%\temp_unlock_%RANDOM%.js
 
 echo ========================================
 echo Desbloqueando conta do signer...
@@ -24,7 +24,7 @@ echo console.log^("Conta: " + account^);
 echo var result = personal.unlockAccount(account, "123456", 0^);
 echo if ^(result^) {
 echo   console.log^("SUCCESS: Conta desbloqueada permanentemente!"^);
-echo   miner.start^();
+echo   miner.start^(^);
 echo   console.log^("Minerador iniciado (miner.start)"^);
 echo } else {
 echo   console.log^("ERRO: Falha ao desbloquear conta!"^);
