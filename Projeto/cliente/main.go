@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -654,62 +655,78 @@ func obterCarta(tokenId *big.Int) (*Carta, error) {
 		return nil, fmt.Errorf("erro ao chamar contrato: %v", err)
 	}
 
-	// Desempacota o resultado
-	// O go-ethereum retorna structs como []interface{} quando usa Unpack
-	unpacked, err := contractABI.Unpack("obterCarta", result)
+	// Desempacota o resultado usando UnpackIntoInterface
+	// O go-ethereum desempacota structs Solidity como structs Go
+	var cartaData struct {
+		Id        *big.Int
+		Nome      string
+		Naipe     string
+		Valor     *big.Int
+		Raridade  string
+		Timestamp *big.Int
+	}
+
+	err = contractABI.UnpackIntoInterface(&cartaData, "obterCarta", result)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
+		// Se UnpackIntoInterface falhar, tenta usar Unpack e reflection
+		unpacked, unpackErr := contractABI.Unpack("obterCarta", result)
+		if unpackErr != nil {
+			return nil, fmt.Errorf("erro ao desempacotar resultado (UnpackIntoInterface: %v, Unpack: %v)", err, unpackErr)
+		}
+
+		if len(unpacked) == 0 {
+			return nil, fmt.Errorf("resultado vazio")
+		}
+
+		// Tenta acessar via reflection se for uma struct
+		val := reflect.ValueOf(unpacked[0])
+		if val.Kind() == reflect.Struct {
+			// Acessa os campos da struct via reflection
+			idField := val.FieldByName("Id")
+			nomeField := val.FieldByName("Nome")
+			naipeField := val.FieldByName("Naipe")
+			valorField := val.FieldByName("Valor")
+			raridadeField := val.FieldByName("Raridade")
+			timestampField := val.FieldByName("Timestamp")
+
+			if !idField.IsValid() || !nomeField.IsValid() || !naipeField.IsValid() ||
+				!valorField.IsValid() || !raridadeField.IsValid() || !timestampField.IsValid() {
+				return nil, fmt.Errorf("estrutura de resultado inesperada: campos não encontrados")
+			}
+
+			return &Carta{
+				ID:        idField.Interface().(*big.Int),
+				Nome:      nomeField.Interface().(string),
+				Naipe:     naipeField.Interface().(string),
+				Valor:     valorField.Interface().(*big.Int),
+				Raridade:  raridadeField.Interface().(string),
+				Timestamp: timestampField.Interface().(*big.Int),
+			}, nil
+		}
+
+		// Se não for struct, tenta como []interface{}
+		if cartaValues, ok := unpacked[0].([]interface{}); ok && len(cartaValues) >= 6 {
+			return &Carta{
+				ID:        cartaValues[0].(*big.Int),
+				Nome:      cartaValues[1].(string),
+				Naipe:     cartaValues[2].(string),
+				Valor:     cartaValues[3].(*big.Int),
+				Raridade:  cartaValues[4].(string),
+				Timestamp: cartaValues[5].(*big.Int),
+			}, nil
+		}
+
+		return nil, fmt.Errorf("formato de resultado inesperado: %T", unpacked[0])
 	}
 
-	if len(unpacked) == 0 {
-		return nil, fmt.Errorf("resultado vazio")
-	}
-
-	// O resultado é uma struct Carta, que o go-ethereum desempacota como []interface{}
-	// com os valores na ordem: id, nome, naipe, valor, raridade, timestamp
-	cartaValues, ok := unpacked[0].([]interface{})
-	if !ok || len(cartaValues) < 6 {
-		return nil, fmt.Errorf("formato de resultado inesperado: esperado []interface{} com 6 elementos, recebido %T com %d elementos", unpacked[0], len(cartaValues))
-	}
-
-	// Converte os valores para os tipos corretos
-	id, ok := cartaValues[0].(*big.Int)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter id: esperado *big.Int, recebido %T", cartaValues[0])
-	}
-
-	nome, ok := cartaValues[1].(string)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter nome: esperado string, recebido %T", cartaValues[1])
-	}
-
-	naipe, ok := cartaValues[2].(string)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter naipe: esperado string, recebido %T", cartaValues[2])
-	}
-
-	valor, ok := cartaValues[3].(*big.Int)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter valor: esperado *big.Int, recebido %T", cartaValues[3])
-	}
-
-	raridade, ok := cartaValues[4].(string)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter raridade: esperado string, recebido %T", cartaValues[4])
-	}
-
-	timestamp, ok := cartaValues[5].(*big.Int)
-	if !ok {
-		return nil, fmt.Errorf("erro ao converter timestamp: esperado *big.Int, recebido %T", cartaValues[5])
-	}
-
+	// Se UnpackIntoInterface funcionou, usa os dados diretamente
 	return &Carta{
-		ID:        id,
-		Nome:      nome,
-		Naipe:     naipe,
-		Valor:     valor,
-		Raridade:  raridade,
-		Timestamp: timestamp,
+		ID:        cartaData.Id,
+		Nome:      cartaData.Nome,
+		Naipe:     cartaData.Naipe,
+		Valor:     cartaData.Valor,
+		Raridade:  cartaData.Raridade,
+		Timestamp: cartaData.Timestamp,
 	}, nil
 }
 
