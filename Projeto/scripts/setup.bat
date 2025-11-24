@@ -104,19 +104,24 @@ echo.
 
 REM Extrai endereço e atualiza docker-compose.yml
 echo [6/6] Atualizando docker-compose.yml...
-for /f "delims=" %%a in ('"%TOOLS_DIR%\blockchain-utils.exe" extrair-endereco "%KEYSTORE_DIR%"') do set ENDERECO=%%a
-if %ERRORLEVEL% NEQ 0 (
+set ENDERECO=
+cd /d "%TOOLS_DIR%"
+for /f "delims=" %%a in ('blockchain-utils.exe extrair-endereco "%KEYSTORE_DIR%"') do set ENDERECO=%%a
+cd /d "%PROJECT_DIR%"
+if "!ENDERECO!"=="" (
     echo ERRO: Falha ao extrair endereco
     pause
     exit /b 1
 )
-"%TOOLS_DIR%\blockchain-utils.exe" atualizar-docker-compose "%ENDERECO%" "%PROJECT_DIR%\docker-compose.yml"
+cd /d "%TOOLS_DIR%"
+blockchain-utils.exe atualizar-docker-compose "!ENDERECO!" "%PROJECT_DIR%\docker-compose.yml"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao atualizar docker-compose.yml
     pause
     exit /b 1
 )
-echo [OK] docker-compose.yml atualizado com endereco: %ENDERECO%
+cd /d "%PROJECT_DIR%"
+echo [OK] docker-compose.yml atualizado com endereco: !ENDERECO!
 echo.
 
 REM Inicializa blockchain
