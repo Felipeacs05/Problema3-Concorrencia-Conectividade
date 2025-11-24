@@ -22,12 +22,17 @@ echo }
 echo var account = accounts[0];
 echo console.log^("Conta: " + account^);
 echo var result = personal.unlockAccount(account, "123456", 0^);
-echo if ^(result^) {
+echo if ^(result === true^) {
 echo   console.log^("SUCCESS: Conta desbloqueada permanentemente!"^);
-echo   miner.start^(^);
-echo   console.log^("Minerador iniciado (miner.start)"^);
+echo   var miningStarted = miner.start^(^);
+echo   if ^(miningStarted === null || miningStarted === true^) {
+echo     console.log^("SUCCESS: Minerador iniciado!"^);
+echo   } else {
+echo     console.log^("AVISO: Minerador pode ja estar rodando"^);
+echo   }
 echo } else {
 echo   console.log^("ERRO: Falha ao desbloquear conta!"^);
+echo   console.log^("Resultado: " + result^);
 echo   console.log^("Verifique se a senha esta correta (padrao: 123456)"^);
 echo }
 echo exit
