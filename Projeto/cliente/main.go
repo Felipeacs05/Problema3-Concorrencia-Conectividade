@@ -296,13 +296,55 @@ func fazerDeployContrato() error {
 	color.Yellow("Iniciando deploy do contrato GameEconomy...\n")
 
 	// Lê o arquivo bytecode
-	bytecode, err := ioutil.ReadFile("../contracts/GameEconomy.bin")
+	bytecodeRaw, err := ioutil.ReadFile("../contracts/GameEconomy.bin")
 	if err != nil {
 		return fmt.Errorf("erro ao ler bytecode: %v", err)
 	}
 
+	// Remove espaços, quebras de linha e caracteres inválidos
+	bytecodeStr := strings.TrimSpace(string(bytecodeRaw))
+	bytecodeStr = strings.ReplaceAll(bytecodeStr, "\n", "")
+	bytecodeStr = strings.ReplaceAll(bytecodeStr, "\r", "")
+	bytecodeStr = strings.ReplaceAll(bytecodeStr, " ", "")
+	
+	// Remove prefixo "0x" se existir
+	if strings.HasPrefix(bytecodeStr, "0x") || strings.HasPrefix(bytecodeStr, "0X") {
+		bytecodeStr = bytecodeStr[2:]
+	}
+
+	// Valida que não está vazio
+	if len(bytecodeStr) == 0 {
+		return fmt.Errorf("bytecode vazio após limpeza")
+	}
+
 	// Converte hex para bytes
-	bytecodeBytes := common.FromHex(string(bytecode))
+	bytecodeBytes := common.FromHex(bytecodeStr)
+	
+	// Valida que a conversão foi bem-sucedida
+	if len(bytecodeBytes) == 0 {
+		return fmt.Errorf("erro ao converter bytecode hex para bytes (tamanho: %d caracteres hex)", len(bytecodeStr))
+	}
+	
+	color.Cyan("Bytecode carregado: %d bytes\n", len(bytecodeBytes))
+
+	// Estima gas necessário para o deploy
+	color.Yellow("Estimando gas necessário...\n")
+	msg := ethereum.CallMsg{
+		From:  contaAtual,
+		Value: big.NewInt(0),
+		Data:  bytecodeBytes,
+	}
+	gasEstimate, err := client.EstimateGas(context.Background(), msg)
+	if err != nil {
+		color.Yellow("⚠ Não foi possível estimar gas: %v\n", err)
+		color.Yellow("   Usando gas limit padrão: %d\n", gasLimit)
+	} else {
+		color.Cyan("Gas estimado: %d\n", gasEstimate)
+		// Usa 120% do estimado como margem de segurança
+		if gasEstimate*120/100 > gasLimit {
+			color.Yellow("⚠ Gas estimado (%d) excede o limite configurado (%d)\n", gasEstimate*120/100, gasLimit)
+		}
+	}
 
 	// Prepara transação de criação de contrato (to = nil)
 	tx, err := enviarTransacao(bytecodeBytes, big.NewInt(0))
