@@ -89,7 +89,8 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM Cria arquivo password.txt (necessário para o docker-compose)
-echo 123456 > "%DATA_DIR%\password.txt"
+REM Remove espaços e quebras de linha extras
+echo|set /p="123456" > "%DATA_DIR%\password.txt"
 echo.
 
 REM Gera genesis.json
@@ -136,13 +137,22 @@ echo.
 
 REM Inicia nó
 echo Iniciando no Geth...
-docker-compose up -d geth
-echo Aguardando inicializacao...
-timeout /t 10 /nobreak >nul
-echo.
+docker-compose up -d
 
+echo Aguardando inicializacao (pode levar alguns segundos)...
+timeout /t 10 /nobreak >nul
+
+:WAIT_LOOP
+docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Aguardando porta RPC 8545...
+    timeout /t 2 /nobreak >nul
+    goto WAIT_LOOP
+)
+
+echo.
 echo ========================================
-echo Configuracao concluida!
+echo Configuracao concluida
 echo ========================================
 echo.
 echo Proximos passos:

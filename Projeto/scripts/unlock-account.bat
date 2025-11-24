@@ -4,58 +4,54 @@ REM Script para desbloquear conta no Clique (Windows)
 
 setlocal enabledelayedexpansion
 
-set SCRIPT_DIR=%~dp0
-set TEMP_FILE=%TEMP%\temp_unlock_%RANDOM%.js
-
 echo ========================================
 echo Desbloqueando conta do signer...
 echo ========================================
 echo.
 
-REM Cria arquivo temporário
-(
-echo var accounts = eth.accounts;
-echo if ^(accounts.length == 0^) {
-echo   console.log^("ERRO: Nenhuma conta encontrada!"^);
-echo   exit;
-echo }
-echo var account = accounts[0];
-echo console.log^("Conta: " + account^);
-echo var result = personal.unlockAccount(account, "123456", 0^);
-echo if ^(result === true^) {
-echo   console.log^("SUCCESS: Conta desbloqueada permanentemente!"^);
-echo   var miningStarted = miner.start^(^);
-echo   if ^(miningStarted === null || miningStarted === true^) {
-echo     console.log^("SUCCESS: Minerador iniciado!"^);
-echo   } else {
-echo     console.log^("AVISO: Minerador pode ja estar rodando"^);
-echo   }
-echo } else {
-echo   console.log^("ERRO: Falha ao desbloquear conta!"^);
-echo   console.log^("Resultado: " + result^);
-echo   console.log^("Verifique se a senha esta correta (padrao: 123456)"^);
-echo }
-echo exit
-) > "%TEMP_FILE%"
+REM Aguarda o Geth estar pronto
+echo Aguardando Geth estar pronto...
+set MAX_TENTATIVAS=30
+set TENTATIVA=0
 
-REM Verifica se o arquivo foi criado
-if not exist "%TEMP_FILE%" (
-    echo ERRO: Falha ao criar arquivo temporario!
+:WAIT_LOOP
+docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] Geth esta pronto!
+    goto UNLOCK
+)
+
+set /a TENTATIVA+=1
+if %TENTATIVA% GEQ %MAX_TENTATIVAS% (
+    echo.
+    echo [ERRO] Timeout aguardando Geth estar pronto!
+    echo Verifique se o container esta rodando: docker ps
     pause
     exit /b 1
 )
 
-REM Executa o comando
-docker exec -i geth-node geth attach http://localhost:8545 < "%TEMP_FILE%"
+echo Aguardando... (%TENTATIVA%/%MAX_TENTATIVAS%)
+timeout /t 2 /nobreak >nul
+goto WAIT_LOOP
 
-REM Remove arquivo temporário
-if exist "%TEMP_FILE%" del "%TEMP_FILE%"
+:UNLOCK
+echo.
+echo Desbloqueando conta...
+docker exec geth-node geth attach --exec "personal.unlockAccount(eth.accounts[0], '123456', 0)" http://localhost:8545
+
+if %ERRORLEVEL% EQU 0 (
+    echo.
+    echo [OK] Comando enviado com sucesso.
+    echo Se retornou 'true', a conta esta desbloqueada.
+) else (
+    echo.
+    echo [ERRO] Falha ao desbloquear conta.
+)
 
 echo.
 echo ========================================
-echo Clique deve comecar a selar blocos automaticamente
+echo Clique pronto para selar blocos
 echo ========================================
 echo.
 
 pause
-
