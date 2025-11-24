@@ -48,8 +48,27 @@ echo.
 
 REM Remove dados antigos
 echo [3/6] Removendo dados antigos...
+set REMOVIDO=0
+
+REM Remove blockchain antiga
 if exist "%DATA_DIR%\geth" (
     rmdir /s /q "%DATA_DIR%\geth"
+    set REMOVIDO=1
+)
+
+REM Remove contas antigas do keystore
+if exist "%KEYSTORE_DIR%" (
+    rmdir /s /q "%KEYSTORE_DIR%"
+    set REMOVIDO=1
+)
+
+REM Remove password.txt antigo (será recriado)
+if exist "%DATA_DIR%\password.txt" (
+    del /q "%DATA_DIR%\password.txt"
+    set REMOVIDO=1
+)
+
+if %REMOVIDO%==1 (
     echo [OK] Dados antigos removidos
 ) else (
     echo [OK] Nenhum dado antigo encontrado
@@ -57,6 +76,7 @@ if exist "%DATA_DIR%\geth" (
 
 REM Cria diretórios necessários
 if not exist "%KEYSTORE_DIR%" mkdir "%KEYSTORE_DIR%"
+if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 echo.
 
 REM Cria conta
@@ -67,6 +87,9 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b 1
 )
+
+REM Cria arquivo password.txt (necessário para o docker-compose)
+echo 123456 > "%DATA_DIR%\password.txt"
 echo.
 
 REM Gera genesis.json
