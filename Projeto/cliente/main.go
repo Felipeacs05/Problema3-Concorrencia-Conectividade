@@ -617,23 +617,75 @@ func obterInventario(jogador common.Address) ([]*big.Int, error) {
 
 	// Verifica se o resultado está vazio
 	if len(result) == 0 {
-		// Retorna array vazio se não houver resultado
 		return []*big.Int{}, nil
 	}
 
-	// Desempacota o resultado
+	// Para arrays dinâmicos, o primeiro 32 bytes contêm o offset
+	// Se o offset for 0, o array está vazio
+	if len(result) >= 32 {
+		offset := new(big.Int).SetBytes(result[0:32])
+		if offset.Cmp(big.NewInt(0)) == 0 {
+			// Array vazio
+			return []*big.Int{}, nil
+		}
+	}
+
+	// Tenta desempacotar usando UnpackIntoInterface primeiro
 	var inventario []*big.Int
 	err = contractABI.UnpackIntoInterface(&inventario, "obterInventario", result)
+	if err == nil && len(inventario) > 0 {
+		return inventario, nil
+	}
+
+	// Se falhar, tenta usar Unpack diretamente
+	unpacked, err := contractABI.Unpack("obterInventario", result)
 	if err != nil {
-		// Se falhar, tenta verificar se é um array vazio
-		// Arrays vazios podem retornar apenas zeros
-		if len(result) > 0 && result[0] == 0 {
-			return []*big.Int{}, nil
+		// Se ainda falhar, verifica se é um array vazio
+		// Arrays vazios retornam offset 0
+		if len(result) >= 32 {
+			offset := new(big.Int).SetBytes(result[0:32])
+			if offset.Cmp(big.NewInt(0)) == 0 {
+				return []*big.Int{}, nil
+			}
 		}
 		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
 	}
 
-	return inventario, nil
+	// Verifica se o resultado está vazio
+	if len(unpacked) == 0 {
+		return []*big.Int{}, nil
+	}
+
+	// Converte o resultado para []*big.Int
+	// O resultado pode ser []interface{} ou []*big.Int diretamente
+	switch v := unpacked[0].(type) {
+	case []*big.Int:
+		return v, nil
+	case []interface{}:
+		inventario = make([]*big.Int, 0, len(v))
+		for _, item := range v {
+			switch tokenId := item.(type) {
+			case *big.Int:
+				inventario = append(inventario, tokenId)
+			case uint64:
+				inventario = append(inventario, big.NewInt(int64(tokenId)))
+			case int64:
+				inventario = append(inventario, big.NewInt(tokenId))
+			default:
+				// Tenta converter via reflection
+				val := reflect.ValueOf(item)
+				if val.Kind() == reflect.Ptr {
+					val = val.Elem()
+				}
+				if val.Kind() == reflect.Uint64 || val.Kind() == reflect.Int64 {
+					inventario = append(inventario, big.NewInt(val.Int()))
+				}
+			}
+		}
+		return inventario, nil
+	default:
+		return nil, fmt.Errorf("formato de resultado inesperado para obterInventario: %T", unpacked[0])
+	}
 }
 
 // Obtém os dados de uma carta
@@ -811,6 +863,13 @@ func verSaldoECartas() {
 
 	// Obtém o inventário do jogador
 	color.Yellow("\n📦 Suas Cartas:\n")
+	
+	// Debug: verifica se o contrato está configurado
+	if enderecoContrato == (common.Address{}) {
+		color.Red("Erro: Contrato não configurado! Use a opção 7 para configurar o endereço do contrato.\n")
+		return
+	}
+	
 	inventario, err := obterInventario(contaAtual)
 	if err != nil {
 		color.Red("Erro ao obter inventário: %v\n", err)
