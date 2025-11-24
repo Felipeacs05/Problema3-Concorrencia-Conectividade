@@ -685,7 +685,7 @@ func obterCarta(tokenId *big.Int) (*Carta, error) {
 func exibirMenu() {
 	color.Cyan("\n=== JOGO DE CARTAS MULTIPLAYER (BLOCKCHAIN) ===\n")
 	fmt.Println("1. Ver Saldo e Cartas")
-	fmt.Println("2. Comprar Pacote de Cartas (0.1 ETH)")
+	fmt.Println("2. Comprar Pacote de Cartas (1 ETH)")
 	fmt.Println("3. Trocar Cartas")
 	fmt.Println("4. Registrar Vitória de Partida")
 	fmt.Println("5. Ver Histórico de Partidas")
@@ -811,7 +811,7 @@ func comprarPacote() {
 	}
 
 	color.Cyan("\n=== COMPRAR PACOTE ===\n")
-	fmt.Println("Custo: 0.1 ETH")
+	fmt.Println("Custo: 1 ETH")
 
 	prompt := promptui.Prompt{
 		Label:     "Confirmar compra? (s/n)",
@@ -823,20 +823,24 @@ func comprarPacote() {
 		return
 	}
 
-	// Envia 0.1 ETH para o contrato
-	valor := big.NewInt(100000000000000000) // 0.1 ETH
+	// Carrega o ABI se ainda não foi carregado
+	if len(contractABI.Methods) == 0 {
+		err := carregarABI()
+		if err != nil {
+			color.Red("Erro ao carregar ABI: %v\n", err)
+			return
+		}
+	}
 
-	// Dados da transação (chamada da função comprarPacote)
-	// Keccak256("comprarPacote()") = 0x4f4b1b7e... (primeiros 4 bytes)
-	// Para simplificar, vamos enviar apenas ETH se a função for receive/fallback
-	// Ou construir os dados manualmente
+	// Envia 1 ETH para o contrato (conforme definido no contrato)
+	valor := big.NewInt(1000000000000000000) // 1 ETH
 
-	// Assumindo que o contrato tem função default/receive para comprar
-	// Ou precisa do seletor da função
-
-	// Exemplo de seletor para comprarPacote() (calculado externamente)
-	// Seletor: 0xe2bbb0d8 (exemplo)
-	data := common.FromHex("0xe2bbb0d8")
+	// Prepara a chamada à função comprarPacote() usando o ABI
+	data, err := contractABI.Pack("comprarPacote")
+	if err != nil {
+		color.Red("Erro ao preparar chamada: %v\n", err)
+		return
+	}
 
 	_, err = enviarTransacao(data, valor)
 	if err != nil {
