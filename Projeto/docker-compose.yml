@@ -8,7 +8,7 @@ services:
   # BAREMA ITEM 1: ARQUITETURA - Container do nó Ethereum privado
   # Este nó mantém a blockchain local e permite interação via RPC/IPC
   geth:
-    image: ethereum/client-go:v1.13.5
+    image: ethereum/client-go:latest
     container_name: geth-node
     # BAREMA ITEM 1: ARQUITETURA - No Windows, mapeamos portas explicitamente
     # No Linux, pode usar network_mode: host para P2P direto
@@ -39,10 +39,10 @@ services:
       - --ws.api=eth,net,web3,personal,miner
       - --ws.origins="*"
       - --allow-insecure-unlock
-      - --unlock=0x079ee37ed3Aa2F844c5166F0c4848Deca6aD95F8
+      - --unlock=0xebedC7b05B72643a1BeD2658F2AA8472052Eb84d
       - --password=/root/.ethereum/password.txt
       - --mine
-      - --miner.etherbase=0x079ee37ed3Aa2F844c5166F0c4848Deca6aD95F8
+      - --miner.etherbase=0xebedC7b05B72643a1BeD2658F2AA8472052Eb84d
     
     environment:
       # BAREMA ITEM 1: ARQUITETURA - Variável para conectar a outro nó (peer)

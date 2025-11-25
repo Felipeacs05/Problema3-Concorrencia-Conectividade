@@ -27,7 +27,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM Compila o utilitário blockchain-utils
-echo [1/6] Compilando utilitario blockchain-utils...
+echo [1/7] Compilando utilitario blockchain-utils...
 cd /d "%TOOLS_DIR%"
 go mod tidy
 go build -o blockchain-utils.exe blockchain-utils.go
@@ -40,14 +40,14 @@ echo [OK] Utilitario compilado
 echo.
 
 REM Para containers se estiverem rodando
-echo [2/6] Parando containers...
+echo [2/7] Parando containers...
 cd /d "%PROJECT_DIR%"
 docker-compose down 2>nul
 echo [OK] Containers parados
 echo.
 
 REM Remove dados antigos
-echo [3/6] Removendo dados antigos...
+echo [3/7] Removendo dados antigos...
 set REMOVIDO=0
 
 REM Remove blockchain antiga
@@ -80,7 +80,7 @@ if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 echo.
 
 REM Cria conta
-echo [4/6] Criando nova conta...
+echo [4/7] Criando nova conta...
 "%TOOLS_DIR%\blockchain-utils.exe" criar-conta "%KEYSTORE_DIR%" "123456"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao criar conta
@@ -89,12 +89,14 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM Cria arquivo password.txt (necessário para o docker-compose)
-REM Remove espaços e quebras de linha extras
-echo|set /p="123456" > "%DATA_DIR%\password.txt"
+REM Usa método confiável para criar arquivo sem quebra de linha extra
+(
+echo 123456
+) > "%DATA_DIR%\password.txt"
 echo.
 
 REM Gera genesis.json
-echo [5/6] Gerando genesis.json...
+echo [5/7] Gerando genesis.json...
 "%TOOLS_DIR%\blockchain-utils.exe" gerar-genesis "%KEYSTORE_DIR%" "%GENESIS_FILE%"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao gerar genesis.json
@@ -104,7 +106,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 
 REM Extrai endereço e atualiza docker-compose.yml
-echo [6/6] Atualizando docker-compose.yml...
+echo [6/7] Atualizando docker-compose.yml...
 set ENDERECO=
 cd /d "%TOOLS_DIR%"
 for /f "delims=" %%a in ('blockchain-utils.exe extrair-endereco "%KEYSTORE_DIR%"') do set ENDERECO=%%a
@@ -123,6 +125,54 @@ if %ERRORLEVEL% NEQ 0 (
 )
 cd /d "%PROJECT_DIR%"
 echo [OK] docker-compose.yml atualizado com endereco: !ENDERECO!
+echo.
+
+REM Verifica se Docker está rodando
+echo [7/7] Verificando Docker e baixando imagem do Geth...
+docker ps >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERRO] Docker nao esta rodando ou nao esta acessivel
+    echo.
+    echo Solucoes:
+    echo   1. Inicie o Docker Desktop
+    echo   2. Verifique se o Docker esta instalado corretamente
+    pause
+    exit /b 1
+)
+echo [OK] Docker esta rodando
+
+REM Faz pull da imagem Docker com retry
+set RETRY_COUNT=0
+set MAX_RETRIES=3
+:PULL_IMAGE
+set /a ATTEMPT_NUM=%RETRY_COUNT%+1
+echo Baixando imagem ethereum/client-go:latest (tentativa !ATTEMPT_NUM!/%MAX_RETRIES%)...
+docker pull ethereum/client-go:latest
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] Imagem baixada com sucesso
+    goto PULL_SUCCESS
+)
+set /a RETRY_COUNT+=1
+if !RETRY_COUNT! LSS %MAX_RETRIES% (
+    echo [AVISO] Falha ao baixar imagem (tentativa !RETRY_COUNT!/%MAX_RETRIES%). Tentando novamente em 5 segundos...
+    timeout /t 5 /nobreak >nul
+    goto PULL_IMAGE
+) else (
+    echo [ERRO] Falha ao baixar imagem Docker apos %MAX_RETRIES% tentativas
+    echo.
+    echo Possiveis causas:
+    echo   - Problema de conexao com a internet
+    echo   - Docker Hub indisponivel
+    echo   - Firewall bloqueando conexao
+    echo.
+    echo Solucoes:
+    echo   1. Verifique sua conexao com a internet
+    echo   2. Tente executar manualmente: docker pull ethereum/client-go:latest
+    echo   3. Verifique configuracoes de proxy/firewall
+    pause
+    exit /b 1
+)
+:PULL_SUCCESS
 echo.
 
 REM Inicializa blockchain
