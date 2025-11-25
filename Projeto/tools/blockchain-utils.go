@@ -30,7 +30,7 @@ type GenesisConfig struct {
 		IstanbulBlock      int `json:"istanbulBlock"`
 		BerlinBlock        int `json:"berlinBlock"`
 		LondonBlock        int `json:"londonBlock"`
-		ShanghaiBlock      int `json:"shanghaiBlock"`
+		ShanghaiTime       int `json:"shanghaiTime"`
 		Clique             struct {
 			Period int `json:"period"`
 			Epoch  int `json:"epoch"`
@@ -114,7 +114,7 @@ func gerarGenesisJSON(signerAddress common.Address, genesisPath string) error {
 	genesis.Config.IstanbulBlock = 0
 	genesis.Config.BerlinBlock = 0
 	genesis.Config.LondonBlock = 0
-	genesis.Config.ShanghaiBlock = 0 // Importante para suportar PUSH0 (Solidity 0.8.20+)
+	genesis.Config.ShanghaiTime = 0 // Importante para suportar PUSH0 (Solidity 0.8.20+)
 	
 	// Configuração do Clique (PoA)
 	genesis.Config.Clique.Period = 5

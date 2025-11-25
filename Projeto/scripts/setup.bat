@@ -146,8 +146,8 @@ set RETRY_COUNT=0
 set MAX_RETRIES=3
 :PULL_IMAGE
 set /a ATTEMPT_NUM=%RETRY_COUNT%+1
-echo Baixando imagem ethereum/client-go:latest (tentativa !ATTEMPT_NUM!/%MAX_RETRIES%)...
-docker pull ethereum/client-go:latest
+echo Baixando imagem ethereum/client-go:v1.13.15 (tentativa !ATTEMPT_NUM!/%MAX_RETRIES%)...
+docker pull ethereum/client-go:v1.13.15
 if %ERRORLEVEL% EQU 0 (
     echo [OK] Imagem baixada com sucesso
     goto PULL_SUCCESS
@@ -167,7 +167,7 @@ if !RETRY_COUNT! LSS %MAX_RETRIES% (
     echo.
     echo Solucoes:
     echo   1. Verifique sua conexao com a internet
-    echo   2. Tente executar manualmente: docker pull ethereum/client-go:latest
+    echo   2. Tente executar manualmente: docker pull ethereum/client-go:v1.13.15
     echo   3. Verifique configuracoes de proxy/firewall
     pause
     exit /b 1
@@ -192,13 +192,27 @@ docker-compose up -d
 echo Aguardando inicializacao (pode levar alguns segundos)...
 timeout /t 10 /nobreak >nul
 
+REM Aguarda porta RPC com timeout (máximo 60 tentativas = 2 minutos)
+set WAIT_COUNT=0
+set MAX_WAIT=60
 :WAIT_LOOP
 docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Aguardando porta RPC 8545...
-    timeout /t 2 /nobreak >nul
-    goto WAIT_LOOP
+if %errorlevel% equ 0 (
+    echo [OK] Geth esta pronto
+    goto WAIT_SUCCESS
 )
+set /a WAIT_COUNT+=1
+if !WAIT_COUNT! geq %MAX_WAIT% (
+    echo.
+    echo [ERRO] Timeout aguardando Geth estar pronto (2 minutos)
+    echo Verifique os logs: docker logs geth-node
+    pause
+    exit /b 1
+)
+echo Aguardando porta RPC 8545... (!WAIT_COUNT!/%MAX_WAIT%)
+timeout /t 2 /nobreak >nul
+goto WAIT_LOOP
+:WAIT_SUCCESS
 
 echo.
 echo ========================================
