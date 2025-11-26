@@ -1,0 +1,59 @@
+# ===================== BAREMA ITEM 1: ARQUITETURA =====================
+# Este arquivo define a orquestração de containers para a blockchain privada Ethereum.
+# Utiliza network_mode: host para permitir comunicação P2P entre máquinas no laboratório.
+# A rede privada permite mineração rápida e controle total sobre a economia do jogo.
+
+services:
+  # ===================== Nó Ethereum (Geth) =====================
+  # BAREMA ITEM 1: ARQUITETURA - Container do nó Ethereum privado
+  # Este nó mantém a blockchain local e permite interação via RPC/IPC
+  geth:
+    image: ethereum/client-go:v1.13.15
+    container_name: geth-node
+    # BAREMA ITEM 1: ARQUITETURA - No Windows, mapeamos portas explicitamente
+    # No Linux, pode usar network_mode: host para P2P direto
+    ports:
+      - "8545:8545"  # HTTP RPC
+      - "8546:8546"  # WebSocket
+      - "30303:30303/udp"  # P2P discovery
+      - "30303:30303"  # P2P TCP
+    
+    volumes:
+      # BAREMA ITEM 1: ARQUITETURA - Persistência da blockchain local
+      # A chaindata é salva localmente para manter o estado entre reinicializações
+      - ./data:/root/.ethereum
+      - ./genesis.json:/genesis.json
+      - ./scripts:/scripts
+    
+    command:
+      - --datadir=/root/.ethereum
+      - --networkid=1337
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,personal,miner
+      - --http.corsdomain="*"
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3,personal,miner
+      - --ws.origins="*"
+      - --allow-insecure-unlock
+      - --unlock=0x7e99268b9c237614e657f9B56244322c72284560
+      - --password=/root/.ethereum/password.txt
+      - --mine
+      - --miner.etherbase=0x7e99268b9c237614e657f9B56244322c72284560
+    
+    environment:
+      # BAREMA ITEM 1: ARQUITETURA - Variável para conectar a outro nó (peer)
+      # Exemplo: BOOTNODE_ENODE=enode://...@192.168.1.100:30303
+      # Para usar, adicione --bootnodes=$${BOOTNODE_ENODE} ao command se necessário
+      - BOOTNODE_ENODE=${BOOTNODE_ENODE:-}
+    
+    # BAREMA ITEM 1: ARQUITETURA - Mantém container rodando mesmo após inicialização
+    stdin_open: true
+    tty: true
+    
+    # BAREMA ITEM 1: ARQUITETURA - Reinicia automaticamente se o container falhar
+    restart: unless-stopped
+

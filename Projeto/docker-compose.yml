@@ -1,30 +1,19 @@
-# ===================== BAREMA ITEM 1: ARQUITETURA =====================
-# Este arquivo define a orquestração de containers para a blockchain privada Ethereum.
-# Utiliza network_mode: host para permitir comunicação P2P entre máquinas no laboratório.
-# A rede privada permite mineração rápida e controle total sobre a economia do jogo.
+# ===================== DOCKER COMPOSE UNIFICADO =====================
+# Orquestra blockchain + jogo distribuído em uma única rede
 
 services:
-  # ===================== Nó Ethereum (Geth) =====================
-  # BAREMA ITEM 1: ARQUITETURA - Container do nó Ethereum privado
-  # Este nó mantém a blockchain local e permite interação via RPC/IPC
+  # ===================== BLOCKCHAIN =====================
   geth:
     image: ethereum/client-go:v1.13.15
     container_name: geth-node
-    # BAREMA ITEM 1: ARQUITETURA - No Windows, mapeamos portas explicitamente
-    # No Linux, pode usar network_mode: host para P2P direto
     ports:
       - "8545:8545"  # HTTP RPC
       - "8546:8546"  # WebSocket
       - "30303:30303/udp"  # P2P discovery
       - "30303:30303"  # P2P TCP
-    
     volumes:
-      # BAREMA ITEM 1: ARQUITETURA - Persistência da blockchain local
-      # A chaindata é salva localmente para manter o estado entre reinicializações
-      - ./data:/root/.ethereum
-      - ./genesis.json:/genesis.json
-      - ./scripts:/scripts
-    
+      - ./Blockchain/data:/root/.ethereum
+      - ./Blockchain/genesis.json:/genesis.json
     command:
       - --datadir=/root/.ethereum
       - --networkid=1337
@@ -39,21 +28,130 @@ services:
       - --ws.api=eth,net,web3,personal,miner
       - --ws.origins="*"
       - --allow-insecure-unlock
-      - --unlock=0x70002492a9F3450BFbc7b9191EcacdC9dF7f7dE9
+      - --unlock=0x7e99268b9c237614e657f9B56244322c72284560
       - --password=/root/.ethereum/password.txt
       - --mine
-      - --miner.etherbase=0x70002492a9F3450BFbc7b9191EcacdC9dF7f7dE9
-    
-    environment:
-      # BAREMA ITEM 1: ARQUITETURA - Variável para conectar a outro nó (peer)
-      # Exemplo: BOOTNODE_ENODE=enode://...@192.168.1.100:30303
-      # Para usar, adicione --bootnodes=$${BOOTNODE_ENODE} ao command se necessário
-      - BOOTNODE_ENODE=${BOOTNODE_ENODE:-}
-    
-    # BAREMA ITEM 1: ARQUITETURA - Mantém container rodando mesmo após inicialização
+      - --miner.etherbase=0x7e99268b9c237614e657f9B56244322c72284560
+    networks:
+      - unified_network
+    restart: unless-stopped
     stdin_open: true
     tty: true
-    
-    # BAREMA ITEM 1: ARQUITETURA - Reinicia automaticamente se o container falhar
-    restart: unless-stopped
 
+  # ===================== BROKERS MQTT =====================
+  broker1:
+    image: eclipse-mosquitto:latest
+    container_name: broker1
+    ports:
+      - "1886:1883"
+    volumes:
+      - ./Jogo/mosquitto/config:/mosquitto/config
+      - broker1_data:/mosquitto/data
+      - broker1_log:/mosquitto/log
+    networks:
+      - unified_network
+
+  broker2:
+    image: eclipse-mosquitto:latest
+    container_name: broker2
+    ports:
+      - "1884:1883"
+    volumes:
+      - ./Jogo/mosquitto/config:/mosquitto/config
+      - broker2_data:/mosquitto/data
+      - broker2_log:/mosquitto/log
+    networks:
+      - unified_network
+
+  broker3:
+    image: eclipse-mosquitto:latest
+    container_name: broker3
+    ports:
+      - "1885:1883"
+    volumes:
+      - ./Jogo/mosquitto/config:/mosquitto/config
+      - broker3_data:/mosquitto/data
+      - broker3_log:/mosquitto/log
+    networks:
+      - unified_network
+
+  # ===================== SERVIDORES DE JOGO =====================
+  servidor1:
+    build:
+      context: ./Jogo
+      dockerfile: servidor/Dockerfile
+    container_name: servidor1
+    command: ["-addr", "servidor1:8080", "-broker", "tcp://broker1:1883"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      - broker1
+      - geth
+    networks:
+      - unified_network
+    restart: unless-stopped
+    environment:
+      - SERVER_ID=servidor1
+      - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://geth:8545
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
+      - KEYSTORE_PATH=/root/.ethereum/keystore
+      - SERVER_PASSWORD=123456
+
+  servidor2:
+    build:
+      context: ./Jogo
+      dockerfile: servidor/Dockerfile
+    container_name: servidor2
+    command: ["-addr", "servidor2:8080", "-broker", "tcp://broker2:1883"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      - broker2
+      - geth
+    networks:
+      - unified_network
+    restart: unless-stopped
+    environment:
+      - SERVER_ID=servidor2
+      - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://geth:8545
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
+      - KEYSTORE_PATH=/root/.ethereum/keystore
+      - SERVER_PASSWORD=123456
+
+  servidor3:
+    build:
+      context: ./Jogo
+      dockerfile: servidor/Dockerfile
+    container_name: servidor3
+    command: ["-addr", "servidor3:8080", "-broker", "tcp://broker3:1883"]
+    ports:
+      - "8082:8080"
+    depends_on:
+      - broker3
+      - geth
+    networks:
+      - unified_network
+    restart: unless-stopped
+    environment:
+      - SERVER_ID=servidor3
+      - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://geth:8545
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
+      - KEYSTORE_PATH=/root/.ethereum/keystore
+      - SERVER_PASSWORD=123456
+
+# ==================== VOLUMES ====================
+volumes:
+  broker1_data:
+  broker1_log:
+  broker2_data:
+  broker2_log:
+  broker3_data:
+  broker3_log:
+
+# ==================== NETWORK ====================
+networks:
+  unified_network:
+    driver: bridge
