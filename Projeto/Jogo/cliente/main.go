@@ -67,10 +67,10 @@ func main() {
 	if isDocker {
 		// Dentro do Docker: usa os nomes dos containers e porta padrão 1883
 		serverMap = map[int]string{
-			1: "tcp://broker1:1883",
-			2: "tcp://broker2:1883",
-			3: "tcp://broker3:1883",
-		}
+		1: "tcp://broker1:1883",
+		2: "tcp://broker2:1883",
+		3: "tcp://broker3:1883",
+	}
 	} else {
 		// Fora do Docker: usa localhost com as portas mapeadas
 		serverMap = map[int]string{
@@ -270,7 +270,7 @@ func handleMensagemServidor(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	fmt.Printf("[DEBUG] Comando recebido: %s\n", mensagem.Comando)
-	
+
 	// Processa a mensagem
 	processarMensagemServidor(mensagem)
 }
@@ -774,7 +774,7 @@ func mostrarCartas() {
 		if blockchainEnabled && chavePrivada != nil {
 			fmt.Println("[INFO] Você não possui cartas na blockchain. Use /comprar para adquirir um pacote.")
 		} else {
-			fmt.Println("[INFO] Você não possui cartas. Use /comprar para adquirir um pacote.")
+		fmt.Println("[INFO] Você não possui cartas. Use /comprar para adquirir um pacote.")
 			fmt.Println("[INFO] Para comprar cartas na blockchain, conecte sua carteira ao iniciar o jogo.")
 		}
 		return
@@ -784,7 +784,7 @@ func mostrarCartas() {
 	if blockchainEnabled && chavePrivada != nil {
 		fmt.Printf("║          SUAS CARTAS (Blockchain: %s)          ║\n", contaBlockchain.Hex()[:10]+"...")
 	} else {
-		fmt.Println("║                    SUAS CARTAS                            ║")
+	fmt.Println("║                    SUAS CARTAS                            ║")
 	}
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 

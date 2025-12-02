@@ -40,6 +40,7 @@ docker run --rm ^
     -w /contracts ^
     ethereum/solc:0.8.20 ^
     --bin --abi ^
+    --evm-version paris ^
     --optimize --optimize-runs 200 ^
     -o /contracts ^
     --overwrite ^

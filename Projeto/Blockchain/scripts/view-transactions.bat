@@ -5,8 +5,7 @@ REM Script para visualizar transações de uma conta na blockchain
 setlocal
 
 set SCRIPT_DIR=%~dp0
-set PROJECT_DIR=%SCRIPT_DIR%..
-set TOOLS_DIR=%PROJECT_DIR%\Blockchain\tools
+set TOOLS_DIR=%SCRIPT_DIR%..\tools
 
 cd /d "%TOOLS_DIR%"
 

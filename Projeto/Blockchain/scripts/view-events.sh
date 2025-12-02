@@ -3,8 +3,7 @@
 # Script para visualizar eventos do contrato GameEconomy na blockchain
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TOOLS_DIR="$PROJECT_DIR/Blockchain/tools"
+TOOLS_DIR="$SCRIPT_DIR/../tools"
 
 cd "$TOOLS_DIR"
 

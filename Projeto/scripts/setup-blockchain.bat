@@ -144,7 +144,7 @@ echo [OK] Blockchain inicializada
 echo.
 
 REM Inicia containers
-echo [9/9] Iniciando containers blockchain...
+echo [9/10] Iniciando containers blockchain...
 docker-compose -f docker-compose-blockchain.yml up -d
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao iniciar containers
@@ -173,21 +173,31 @@ echo [OK] Conta desbloqueada
 echo.
 
 REM Faz deploy do contrato
-echo Fazendo deploy do contrato...
-cd /d "%PROJECT_DIR%"
-if exist "cliente\cliente.exe" (
-    echo Executando deploy via cliente...
-    echo Deploy | "%PROJECT_DIR%\cliente\cliente.exe" >nul 2>&1
+echo [10/10] Fazendo deploy do contrato...
+cd /d "%BLOCKCHAIN_DIR%\scripts"
+
+REM Verifica se o contrato foi compilado
+if not exist "%BLOCKCHAIN_DIR%\contracts\GameEconomy.bin" (
+    echo [AVISO] Contrato nao compilado. Compilando...
+    call compile-contract.bat
+    if %ERRORLEVEL% NEQ 0 (
+        echo [AVISO] Falha ao compilar contrato. Execute compile-contract.bat manualmente.
+        goto :skip_deploy
+    )
+)
+
+REM Executa deploy
+if exist "deploy-contract.bat" (
+    call deploy-contract.bat
     if %ERRORLEVEL% EQU 0 (
-        echo [OK] Contrato deployado
-        REM Salva endereço do contrato
-        REM (O cliente deve salvar em contract-address.txt)
+        echo [OK] Contrato deployado com sucesso
     ) else (
-        echo [AVISO] Deploy pode ter falhado. Execute manualmente via cliente.
+        echo [AVISO] Deploy pode ter falhado. Execute deploy-contract.bat manualmente.
     )
 ) else (
-    echo [AVISO] Cliente nao encontrado. Execute o deploy manualmente.
+    echo [AVISO] Script de deploy nao encontrado. Execute deploy-contract.bat manualmente.
 )
+:skip_deploy
 echo.
 
 echo ========================================

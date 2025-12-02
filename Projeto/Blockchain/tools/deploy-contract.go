@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// Cria transação de deploy
-	gasLimit := uint64(80000000) // 80M gas
+	gasLimit := uint64(8000000) // 8M gas (ajustado para blockchain privada)
 	tx := types.NewContractCreation(nonce, big.NewInt(0), gasLimit, gasPrice, common.FromHex(bytecode))
 
 	// Obtém chain ID dinamicamente

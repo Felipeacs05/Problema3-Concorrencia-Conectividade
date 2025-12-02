@@ -132,7 +132,7 @@ echo "[OK] Blockchain inicializada"
 echo ""
 
 # Inicia containers
-echo "[9/9] Iniciando containers blockchain..."
+echo "[9/10] Iniciando containers blockchain..."
 docker-compose -f docker-compose-blockchain.yml up -d
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao iniciar containers"
@@ -160,21 +160,30 @@ echo "[OK] Conta desbloqueada"
 echo ""
 
 # Faz deploy do contrato
-echo "Fazendo deploy do contrato..."
-cd "$PROJECT_DIR"
-if [ -f "Jogo/cliente/cliente" ] || [ -f "Jogo/cliente/cliente.exe" ]; then
-    echo "Executando deploy via cliente..."
-    echo "Deploy" | "$PROJECT_DIR/Jogo/cliente/cliente" >/dev/null 2>&1 || \
-    echo "Deploy" | "$PROJECT_DIR/Jogo/cliente/cliente.exe" >/dev/null 2>&1 || true
+echo "[10/10] Fazendo deploy do contrato..."
+cd "$BLOCKCHAIN_DIR/scripts"
+
+# Verifica se o contrato foi compilado
+if [ ! -f "$BLOCKCHAIN_DIR/contracts/GameEconomy.bin" ]; then
+    echo "[AVISO] Contrato não compilado. Compilando..."
+    ./compile-contract.sh
+    if [ $? -ne 0 ]; then
+        echo "[AVISO] Falha ao compilar contrato. Execute compile-contract.sh manualmente."
+        echo ""
+        return 0
+    fi
+fi
+
+# Executa deploy
+if [ -f "deploy-contract.sh" ]; then
+    ./deploy-contract.sh
     if [ $? -eq 0 ]; then
-        echo "[OK] Contrato deployado"
-        # Salva endereço do contrato
-        # (O cliente deve salvar em contract-address.txt)
+        echo "[OK] Contrato deployado com sucesso"
     else
-        echo "[AVISO] Deploy pode ter falhado. Execute manualmente via cliente."
+        echo "[AVISO] Deploy pode ter falhado. Execute deploy-contract.sh manualmente."
     fi
 else
-    echo "[AVISO] Cliente não encontrado. Execute o deploy manualmente."
+    echo "[AVISO] Script de deploy não encontrado. Execute deploy-contract.sh manualmente."
 fi
 echo ""
 
