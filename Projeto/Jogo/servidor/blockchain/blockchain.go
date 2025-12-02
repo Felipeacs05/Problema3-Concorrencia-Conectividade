@@ -10,11 +10,9 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"jogodistribuido/servidor/tipos"
@@ -68,7 +66,6 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 	}
 	
 	var abiBytes []byte
-	var err error
 	for _, abiPath := range abiPaths {
 		abiBytes, err = ioutil.ReadFile(abiPath)
 		if err == nil {

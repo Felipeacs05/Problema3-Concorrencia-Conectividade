@@ -26,25 +26,57 @@ if %ERRORLEVEL% NEQ 0 (
 REM Inicia blockchain
 echo [1/2] Iniciando blockchain...
 cd /d "%BLOCKCHAIN_DIR%"
+
+REM Verifica se chaindata existe, se não, inicializa
+set DATA_DIR=%BLOCKCHAIN_DIR%\data
+set GENESIS_FILE=%BLOCKCHAIN_DIR%\genesis.json
+
+if not exist "%DATA_DIR%\geth" (
+    echo [INFO] Chaindata nao encontrado, inicializando blockchain...
+    docker run --rm -v "%DATA_DIR%:/root/.ethereum" -v "%GENESIS_FILE%:/genesis.json" ethereum/client-go:v1.13.15 --datadir=/root/.ethereum init /genesis.json
+    if %ERRORLEVEL% NEQ 0 (
+        echo ERRO: Falha ao inicializar blockchain
+        pause
+        exit /b 1
+    )
+    echo [OK] Blockchain inicializada
+    echo.
+)
+
+REM Inicia container
 docker-compose -f docker-compose-blockchain.yml up -d
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao iniciar blockchain
     pause
     exit /b 1
 )
-echo [OK] Blockchain iniciada
+echo [OK] Container blockchain iniciado
 echo.
 
-REM Aguarda blockchain estar pronta
+REM Aguarda blockchain estar pronta - VERSÃO ULTRA SIMPLIFICADA
 echo Aguardando blockchain estar pronta...
-:WAIT_BLOCKCHAIN
-timeout /t 3 /nobreak >nul
-docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Aguardando blockchain...
-    goto WAIT_BLOCKCHAIN
+timeout /t 8 /nobreak >nul
+
+REM Verifica uma vez se está funcionando
+docker ps 2>nul | findstr "geth-node" >nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [AVISO] Container Geth pode nao estar rodando
+    echo Continuando mesmo assim...
+    echo.
+) else (
+    echo [OK] Container verificado
 )
-echo [OK] Blockchain pronta
+
+netstat -an 2>nul | findstr ":8545" | findstr "LISTENING" >nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [AVISO] Porta 8545 pode nao estar aberta ainda
+    echo Continuando mesmo assim...
+    echo.
+) else (
+    echo [OK] Porta RPC verificada
+)
+
+echo [OK] Blockchain pronta (ou iniciando em background)
 echo.
 
 REM Inicia jogo
@@ -63,7 +95,7 @@ echo ========================================
 echo Infraestrutura iniciada com sucesso!
 echo ========================================
 echo.
-echo Serviços disponíveis:
+echo Servicos disponiveis:
 echo - Blockchain: http://localhost:8545
 echo - Servidor 1: http://localhost:8080
 echo - Servidor 2: http://localhost:8081
@@ -75,4 +107,3 @@ echo.
 echo Para parar tudo, execute: stop-all.bat
 echo.
 pause
-

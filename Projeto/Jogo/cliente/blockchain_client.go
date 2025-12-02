@@ -20,9 +20,29 @@ import (
 
 const (
 	rpcURL      = "http://localhost:8545"
-	keystorePath = "../Blockchain/data/keystore"
-	gasLimit    = uint64(80000000)
+	gasLimit    = uint64(5000000) // Reduzido de 80M para 5M para caber no limite do bloco
 )
+
+// getKeystorePath retorna o caminho do keystore (tenta vários caminhos possíveis)
+func getKeystorePath() string {
+	// Tenta vários caminhos possíveis
+	paths := []string{
+		"../Blockchain/data/keystore",
+		"../../Blockchain/data/keystore",
+		"../../../Blockchain/data/keystore",
+		"./Blockchain/data/keystore",
+		"../Projeto/Blockchain/data/keystore",
+	}
+	
+	for _, path := range paths {
+		if files, err := ioutil.ReadDir(path); err == nil && len(files) > 0 {
+			return path
+		}
+	}
+	
+	// Retorna o padrão se nenhum funcionar
+	return "../Blockchain/data/keystore"
+}
 
 var (
 	blockchainClient *ethclient.Client
@@ -51,51 +71,123 @@ func inicializarBlockchain() error {
 	blockchainClient = client
 	blockchainRPC = rpcClient
 
-	// Tenta carregar o endereço do contrato
-	contractAddrBytes, err := ioutil.ReadFile("../contract-address.txt")
-	if err == nil {
-		contractAddress = common.HexToAddress(strings.TrimSpace(string(contractAddrBytes)))
-		
-		// Carrega ABI
-		abiPath := "../Blockchain/contracts/GameEconomy.abi"
-		abiBytes, err := ioutil.ReadFile(abiPath)
+	// Tenta carregar o endereço do contrato (tenta vários caminhos)
+	contractAddrPaths := []string{
+		"../contract-address.txt",
+		"../../contract-address.txt",
+		"../../../contract-address.txt",
+		"../Projeto/contract-address.txt",
+		"./contract-address.txt",
+	}
+	
+	var contractAddrBytes []byte
+	for _, path := range contractAddrPaths {
+		contractAddrBytes, err = ioutil.ReadFile(path)
 		if err == nil {
-			parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
-			if err == nil {
-				contractABI = parsedABI
-				blockchainEnabled = true
-				return nil
-			}
+			break
 		}
 	}
-
-	return fmt.Errorf("blockchain configurada mas contrato não encontrado")
+	
+	if err != nil {
+		return fmt.Errorf("contrato não encontrado. Execute setup-blockchain.bat primeiro")
+	}
+	
+	contractAddress = common.HexToAddress(strings.TrimSpace(string(contractAddrBytes)))
+	
+	// Carrega ABI (tenta vários caminhos)
+	abiPaths := []string{
+		"../Blockchain/contracts/GameEconomy.abi",
+		"../../Blockchain/contracts/GameEconomy.abi",
+		"../../../Blockchain/contracts/GameEconomy.abi",
+		"../Projeto/Blockchain/contracts/GameEconomy.abi",
+		"./Blockchain/contracts/GameEconomy.abi",
+	}
+	
+	var abiBytes []byte
+	for _, abiPath := range abiPaths {
+		abiBytes, err = ioutil.ReadFile(abiPath)
+		if err == nil {
+			break
+		}
+	}
+	
+	if err != nil {
+		return fmt.Errorf("ABI do contrato não encontrado")
+	}
+	
+	parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
+	if err != nil {
+		return fmt.Errorf("erro ao fazer parse do ABI: %v", err)
+	}
+	
+	contractABI = parsedABI
+	// NÃO define blockchainEnabled = true aqui
+	// Só será true quando a carteira também for carregada
+	fmt.Printf("✓ Conexão com blockchain estabelecida (Contrato: %s)\n", contractAddress.Hex())
+	fmt.Printf("  [Aguardando carregamento da carteira...]\n")
+	return nil
 }
 
 // carregarCarteira carrega ou cria uma carteira
 func carregarCarteira() error {
-	if !blockchainEnabled {
-		return fmt.Errorf("blockchain não está habilitada")
-	}
+	// Removido verificação de blockchainEnabled aqui, pois ela só será true ao final desta função
 
+	keystorePath := getKeystorePath()
+	
 	// Lista arquivos do keystore
 	files, err := ioutil.ReadDir(keystorePath)
 	if err != nil {
-		return fmt.Errorf("erro ao ler keystore: %v", err)
+		return fmt.Errorf("erro ao ler keystore (%s): %v\nExecute criar-conta-jogador.bat primeiro", keystorePath, err)
 	}
 
 	if len(files) == 0 {
-		return fmt.Errorf("nenhuma carteira encontrada. Execute criar-conta-jogador.bat primeiro")
+		return fmt.Errorf("nenhuma carteira encontrada em %s\nExecute criar-conta-jogador.bat primeiro", keystorePath)
 	}
 
-	// Usa o primeiro arquivo encontrado (ou pode pedir para escolher)
-	keyFile := files[0].Name()
+	// Se houver múltiplas carteiras, permite escolher
+	var keyFile string
+	if len(files) > 1 {
+		fmt.Println("\nMúltiplas carteiras encontradas:")
+		for i, file := range files {
+			// Extrai endereço do nome do arquivo
+			parts := strings.Split(file.Name(), "--")
+			var endereco string
+			if len(parts) >= 3 {
+				endereco = "0x" + parts[len(parts)-1]
+			} else {
+				endereco = file.Name()
+			}
+			fmt.Printf("  %d. %s\n", i+1, endereco)
+		}
+		fmt.Print("Escolha uma carteira (número): ")
+		var escolha int
+		fmt.Scanln(&escolha)
+		if escolha < 1 || escolha > len(files) {
+			return fmt.Errorf("escolha inválida")
+		}
+		keyFile = files[escolha-1].Name()
+	} else {
+		// Usa a única carteira encontrada
+		keyFile = files[0].Name()
+		// Extrai endereço para mostrar
+		parts := strings.Split(keyFile, "--")
+		if len(parts) >= 3 {
+			endereco := "0x" + parts[len(parts)-1]
+			fmt.Printf("Carteira encontrada: %s\n", endereco)
+		}
+	}
+
 	keyPath := keystorePath + "/" + keyFile
+	if strings.Contains(keyPath, "\\") {
+		// Windows path
+		keyPath = strings.ReplaceAll(keyPath, "/", "\\")
+	}
 
 	// Solicita senha
 	fmt.Print("Digite a senha da sua carteira: ")
 	var senha string
 	fmt.Scanln(&senha)
+	senha = strings.TrimSpace(senha)
 
 	jsonBytes, err := ioutil.ReadFile(keyPath)
 	if err != nil {
@@ -111,46 +203,77 @@ func carregarCarteira() error {
 	contaBlockchain = key.Address
 	senhaConta = senha
 
+	// Só agora que a carteira foi carregada, habilita a blockchain
+	blockchainEnabled = true
+
 	fmt.Printf("✓ Carteira carregada: %s\n", contaBlockchain.Hex())
+	fmt.Printf("✓ Blockchain totalmente conectada e pronta para uso!\n")
 	return nil
 }
 
 // comprarPacoteBlockchain compra um pacote de cartas na blockchain
 func comprarPacoteBlockchain() error {
+	fmt.Printf("[DEBUG] comprarPacoteBlockchain() iniciado\n")
+	fmt.Printf("[DEBUG] blockchainEnabled=%v, chavePrivada!=nil=%v\n", blockchainEnabled, chavePrivada != nil)
+	fmt.Printf("[DEBUG] contaBlockchain=%s, contractAddress=%s\n", contaBlockchain.Hex(), contractAddress.Hex())
+	
 	if !blockchainEnabled {
 		return fmt.Errorf("blockchain não está habilitada")
 	}
 
+	if chavePrivada == nil {
+		return fmt.Errorf("carteira não carregada")
+	}
+
 	// Prepara a chamada
+	fmt.Printf("[DEBUG] Preparando chamada comprarPacote()...\n")
 	data, err := contractABI.Pack("comprarPacote")
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao preparar chamada: %v\n", err)
 		return fmt.Errorf("erro ao preparar chamada: %v", err)
 	}
+	fmt.Printf("[DEBUG] Chamada preparada, dados: %s...\n", common.Bytes2Hex(data[:min(20, len(data))]))
 
 	// Valor: 1 ETH
 	valor := big.NewInt(1000000000000000000) // 1 ETH em wei
+	fmt.Printf("[DEBUG] Valor da transação: %s wei (1 ETH)\n", valor.String())
 
 	// Envia transação
+	fmt.Printf("[DEBUG] Enviando transação...\n")
 	tx, err := enviarTransacaoBlockchain(data, valor)
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao enviar transação: %v\n", err)
 		return fmt.Errorf("erro ao enviar transação: %v", err)
 	}
 
+	fmt.Printf("[DEBUG] Transação criada: Hash=%s, Nonce=%d\n", tx.Hash().Hex(), tx.Nonce())
 	fmt.Printf("Transação enviada: %s\n", tx.Hash().Hex())
 	fmt.Println("Aguardando confirmação...")
 
 	// Aguarda confirmação
+	fmt.Printf("[DEBUG] Aguardando confirmação da transação...\n")
 	receipt, err := aguardarConfirmacaoBlockchain(tx.Hash())
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao aguardar confirmação: %v\n", err)
 		return err
 	}
 
+	fmt.Printf("[DEBUG] Receipt recebido: Status=%d, BlockNumber=%d, GasUsed=%d\n", receipt.Status, receipt.BlockNumber.Uint64(), receipt.GasUsed)
+
 	if receipt.Status == 0 {
+		fmt.Printf("[ERRO] Transação falhou (Status=0)\n")
 		return fmt.Errorf("transação falhou")
 	}
 
 	fmt.Println("✓ Pacote comprado com sucesso!")
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // obterInventarioBlockchain obtém o inventário da blockchain
@@ -237,31 +360,48 @@ func obterCartaBlockchain(cartaID *big.Int) (protocolo.Carta, error) {
 
 // enviarTransacaoBlockchain envia uma transação
 func enviarTransacaoBlockchain(data []byte, valor *big.Int) (*types.Transaction, error) {
+	fmt.Printf("[DEBUG] enviarTransacaoBlockchain() iniciado\n")
+	fmt.Printf("[DEBUG] contaBlockchain=%s, contractAddress=%s\n", contaBlockchain.Hex(), contractAddress.Hex())
+	
 	nonce, err := blockchainClient.PendingNonceAt(context.Background(), contaBlockchain)
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao obter nonce: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] Nonce obtido: %d\n", nonce)
 
 	gasPrice, err := blockchainClient.SuggestGasPrice(context.Background())
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao obter gasPrice: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] GasPrice sugerido: %s wei\n", gasPrice.String())
 
 	chainID, err := blockchainClient.NetworkID(context.Background())
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao obter chainID: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] ChainID: %s\n", chainID.String())
+	fmt.Printf("[DEBUG] GasLimit: %d\n", gasLimit)
 
 	tx := types.NewTransaction(nonce, contractAddress, valor, gasLimit, gasPrice, data)
+	fmt.Printf("[DEBUG] Transação criada (antes de assinar)\n")
+	
 	txAssinada, err := types.SignTx(tx, types.NewEIP155Signer(chainID), chavePrivada.PrivateKey)
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao assinar transação: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] Transação assinada com sucesso\n")
 
+	fmt.Printf("[DEBUG] Enviando transação para a blockchain...\n")
 	err = blockchainClient.SendTransaction(context.Background(), txAssinada)
 	if err != nil {
+		fmt.Printf("[ERRO] Falha ao enviar transação: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[DEBUG] Transação enviada com sucesso!\n")
 
 	return txAssinada, nil
 }

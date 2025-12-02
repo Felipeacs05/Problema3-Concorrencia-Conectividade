@@ -36,8 +36,8 @@ if %ERRORLEVEL% NEQ 0 (
 echo [OK] Servidor compilado
 echo.
 
-REM Compila cliente
-echo [2/3] Compilando cliente...
+REM Compila cliente (Windows)
+echo [2/3] Compilando cliente (Windows)...
 cd /d "%JOGO_DIR%\cliente"
 go mod tidy
 go build -o cliente.exe main.go blockchain_client.go
@@ -46,7 +46,7 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b 1
 )
-echo [OK] Cliente compilado
+echo [OK] Cliente compilado (Windows: cliente.exe)
 echo.
 
 REM Verifica se o contrato foi deployado

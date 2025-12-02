@@ -96,9 +96,19 @@ fi
 echo "[OK] Genesis.json gerado"
 echo ""
 
+# Extrai endereço da conta criada
+echo "[6/8] Extraindo endereco da conta..."
+ADDRESS=$("$TOOLS_DIR/blockchain-utils" extrair-endereco "$KEYSTORE_DIR")
+if [ -z "$ADDRESS" ]; then
+    echo "ERRO: Falha ao extrair endereco"
+    exit 1
+fi
+echo "[OK] Endereco extraido: $ADDRESS"
+echo ""
+
 # Atualiza docker-compose.yml com endereço da conta
-echo "[6/7] Atualizando docker-compose.yml..."
-"$TOOLS_DIR/blockchain-utils" atualizar-docker-compose "$KEYSTORE_DIR" "$BLOCKCHAIN_DIR/docker-compose-blockchain.yml"
+echo "[7/9] Atualizando docker-compose.yml..."
+"$TOOLS_DIR/blockchain-utils" atualizar-docker-compose "$ADDRESS" "$BLOCKCHAIN_DIR/docker-compose-blockchain.yml"
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao atualizar docker-compose.yml"
     exit 1
@@ -106,9 +116,23 @@ fi
 echo "[OK] Docker-compose.yml atualizado"
 echo ""
 
-# Inicia containers
-echo "[7/7] Iniciando containers blockchain..."
+# Inicializa blockchain (geth init)
+echo "[8/9] Inicializando blockchain com genesis.json..."
 cd "$BLOCKCHAIN_DIR"
+if [ -d "$DATA_DIR/geth" ]; then
+    echo "Removendo dados antigos da blockchain..."
+    rm -rf "$DATA_DIR/geth"
+fi
+docker run --rm -v "$DATA_DIR:/root/.ethereum" -v "$GENESIS_FILE:/genesis.json" ethereum/client-go:v1.13.15 --datadir=/root/.ethereum init /genesis.json
+if [ $? -ne 0 ]; then
+    echo "ERRO: Falha ao inicializar blockchain"
+    exit 1
+fi
+echo "[OK] Blockchain inicializada"
+echo ""
+
+# Inicia containers
+echo "[9/9] Iniciando containers blockchain..."
 docker-compose -f docker-compose-blockchain.yml up -d
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao iniciar containers"

@@ -28,7 +28,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM Compila o utilitário blockchain-utils
-echo [1/7] Compilando utilitario blockchain-utils...
+echo [1/9] Compilando utilitario blockchain-utils...
 cd /d "%TOOLS_DIR%"
 go mod tidy
 go build -o blockchain-utils.exe blockchain-utils.go
@@ -41,14 +41,14 @@ echo [OK] Utilitario compilado
 echo.
 
 REM Para containers se estiverem rodando
-echo [2/7] Parando containers blockchain...
+echo [2/9] Parando containers blockchain...
 cd /d "%BLOCKCHAIN_DIR%"
 docker-compose -f docker-compose-blockchain.yml down 2>nul
 echo [OK] Containers parados
 echo.
 
 REM Remove dados antigos
-echo [3/7] Removendo dados antigos...
+echo [3/9] Removendo dados antigos...
 set REMOVIDO=0
 
 if exist "%DATA_DIR%\geth" (
@@ -78,7 +78,7 @@ if not exist "%DATA_DIR%" mkdir "%DATA_DIR%"
 echo.
 
 REM Cria conta
-echo [4/7] Criando nova conta...
+echo [4/9] Criando nova conta...
 "%TOOLS_DIR%\blockchain-utils.exe" criar-conta "%KEYSTORE_DIR%" "123456"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao criar conta
@@ -93,7 +93,7 @@ echo 123456
 echo.
 
 REM Gera genesis.json
-echo [5/7] Gerando genesis.json...
+echo [5/9] Gerando genesis.json...
 "%TOOLS_DIR%\blockchain-utils.exe" gerar-genesis "%KEYSTORE_DIR%" "%GENESIS_FILE%"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao gerar genesis.json
@@ -103,9 +103,22 @@ if %ERRORLEVEL% NEQ 0 (
 echo [OK] Genesis.json gerado
 echo.
 
+REM Extrai endereço da conta criada
+echo [6/9] Extraindo endereco da conta...
+"%TOOLS_DIR%\blockchain-utils.exe" extrair-endereco "%KEYSTORE_DIR%" > "%TEMP%\blockchain-address.txt"
+set /p ADDRESS=<"%TEMP%\blockchain-address.txt"
+del "%TEMP%\blockchain-address.txt" 2>nul
+if "%ADDRESS%"=="" (
+    echo ERRO: Falha ao extrair endereco
+    pause
+    exit /b 1
+)
+echo [OK] Endereco extraido: %ADDRESS%
+echo.
+
 REM Atualiza docker-compose.yml com endereço da conta
-echo [6/7] Atualizando docker-compose.yml...
-"%TOOLS_DIR%\blockchain-utils.exe" atualizar-docker-compose "%KEYSTORE_DIR%" "%BLOCKCHAIN_DIR%\docker-compose-blockchain.yml"
+echo [7/9] Atualizando docker-compose.yml...
+"%TOOLS_DIR%\blockchain-utils.exe" atualizar-docker-compose "%ADDRESS%" "%BLOCKCHAIN_DIR%\docker-compose-blockchain.yml"
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao atualizar docker-compose.yml
     pause
@@ -114,9 +127,24 @@ if %ERRORLEVEL% NEQ 0 (
 echo [OK] Docker-compose.yml atualizado
 echo.
 
-REM Inicia containers
-echo [7/7] Iniciando containers blockchain...
+REM Inicializa blockchain (geth init)
+echo [8/9] Inicializando blockchain com genesis.json...
 cd /d "%BLOCKCHAIN_DIR%"
+if exist "%DATA_DIR%\geth" (
+    echo Removendo dados antigos da blockchain...
+    rmdir /s /q "%DATA_DIR%\geth"
+)
+docker run --rm -v "%DATA_DIR%:/root/.ethereum" -v "%GENESIS_FILE%:/genesis.json" ethereum/client-go:v1.13.15 --datadir=/root/.ethereum init /genesis.json
+if %ERRORLEVEL% NEQ 0 (
+    echo ERRO: Falha ao inicializar blockchain
+    pause
+    exit /b 1
+)
+echo [OK] Blockchain inicializada
+echo.
+
+REM Inicia containers
+echo [9/9] Iniciando containers blockchain...
 docker-compose -f docker-compose-blockchain.yml up -d
 if %ERRORLEVEL% NEQ 0 (
     echo ERRO: Falha ao iniciar containers

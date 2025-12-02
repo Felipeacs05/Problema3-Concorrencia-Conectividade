@@ -33,8 +33,8 @@ fi
 echo "[OK] Servidor compilado"
 echo ""
 
-# Compila cliente
-echo "[2/3] Compilando cliente..."
+# Compila cliente (Linux/Mac)
+echo "[2/3] Compilando cliente (Linux/Mac)..."
 cd "$JOGO_DIR/cliente"
 go mod tidy
 go build -o cliente main.go blockchain_client.go
@@ -42,7 +42,7 @@ if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao compilar cliente"
     exit 1
 fi
-echo "[OK] Cliente compilado"
+echo "[OK] Cliente compilado (Linux/Mac: ./cliente)"
 echo ""
 
 # Verifica se o contrato foi deployado

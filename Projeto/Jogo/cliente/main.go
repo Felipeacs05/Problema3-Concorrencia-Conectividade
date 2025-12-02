@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -39,15 +40,50 @@ func main() {
 	}
 
 	// --- LÓGICA DE ESCOLHA CORRIGIDA ---
-	serverMap := map[int]string{
-		1: "tcp://broker1:1883",
-		2: "tcp://broker2:1883",
-		3: "tcp://broker3:1883",
+	// Detecta se está rodando dentro do Docker ou fora
+	// Se a variável MQTT_BROKER_HOST estiver definida, usa ela
+	// Senão, verifica se consegue resolver "broker1" (dentro do Docker)
+	// Se não conseguir, assume que está fora e usa localhost com portas mapeadas
+	mqttHost := os.Getenv("MQTT_BROKER_HOST")
+	isDocker := false
+	
+	if mqttHost == "" {
+		// Tenta detectar automaticamente se está dentro do Docker
+		// Verifica se consegue resolver "broker1"
+		if _, err := net.LookupHost("broker1"); err == nil {
+			mqttHost = "broker1"
+			isDocker = true
+		} else {
+			mqttHost = "localhost"
+			isDocker = false
+		}
+	} else {
+		// Se MQTT_BROKER_HOST foi definido, verifica se é um nome Docker
+		isDocker = (mqttHost == "broker1" || mqttHost == "broker2" || mqttHost == "broker3")
 	}
+
+	// Mapeia servidores com portas corretas
+	var serverMap map[int]string
+	if isDocker {
+		// Dentro do Docker: usa os nomes dos containers e porta padrão 1883
+		serverMap = map[int]string{
+			1: "tcp://broker1:1883",
+			2: "tcp://broker2:1883",
+			3: "tcp://broker3:1883",
+		}
+	} else {
+		// Fora do Docker: usa localhost com as portas mapeadas
+		serverMap = map[int]string{
+			1: "tcp://localhost:1886", // Porta mapeada do broker1
+			2: "tcp://localhost:1884", // Porta mapeada do broker2
+			3: "tcp://localhost:1885", // Porta mapeada do broker3
+		}
+	}
+
 	fmt.Println("\nEscolha o servidor para conectar:")
 	fmt.Println("1. Servidor 1")
 	fmt.Println("2. Servidor 2")
-	fmt.Println("3. Servidor 3") //asdaddasdsd
+	fmt.Println("3. Servidor 3")
 	fmt.Print("Opção: ")
 	scanner.Scan()
 	opcaoStr := scanner.Text()
@@ -71,6 +107,37 @@ func main() {
 	// --- FIM DA CORREÇÃO ---
 
 	fmt.Printf("\nBem-vindo, %s! (Seu ID: %s)\n", meuNome, meuID)
+	
+	// Tenta inicializar blockchain (opcional)
+	fmt.Println("\n=== Configuração Blockchain (Opcional) ===")
+	fmt.Println("Deseja conectar sua carteira blockchain?")
+	fmt.Println("(Necessário para comprar/trocar cartas)")
+	fmt.Print("(s/n): ")
+	scanner.Scan()
+	resposta := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	
+	if resposta == "s" || resposta == "sim" || resposta == "y" || resposta == "yes" {
+		// Inicializa blockchain (conexão com Geth e carrega contrato)
+		if err := inicializarBlockchain(); err != nil {
+			fmt.Printf("[AVISO] Blockchain não disponível: %v\n", err)
+			fmt.Println("Você ainda pode jogar, mas não poderá comprar/trocar cartas.")
+			blockchainEnabled = false // Garante que está desabilitado
+		} else {
+			// Carrega carteira (descriptografa keystore)
+			if err := carregarCarteira(); err != nil {
+				fmt.Printf("[AVISO] Erro ao carregar carteira: %v\n", err)
+				fmt.Println("Você ainda pode jogar, mas não poderá comprar/trocar cartas.")
+				blockchainEnabled = false // Desabilita se a carteira não foi carregada
+				// Limpa variáveis para garantir estado limpo
+				chavePrivada = nil
+			}
+			// Se chegou aqui e blockchainEnabled == true, significa que tudo foi carregado com sucesso
+		}
+	} else {
+		fmt.Println("[INFO] Blockchain não conectada. Você pode jogar, mas não poderá comprar/trocar cartas.")
+		blockchainEnabled = false // Garante que está desabilitado
+	}
+	
 	fmt.Println("\nEntrando na fila de matchmaking...")
 	entrarNaFila()
 
@@ -172,23 +239,38 @@ func fazerLogin() error {
 }
 
 func entrarNaFila() {
+	fmt.Printf("[DEBUG] entrarNaFila() chamado - meuID=%s\n", meuID)
+	
 	dados := map[string]string{"cliente_id": meuID}
 	payload, _ := json.Marshal(dados)
+	
+	fmt.Printf("[DEBUG] Payload: %s\n", string(payload))
 
 	topico := fmt.Sprintf("clientes/%s/entrar_fila", meuID)
+	fmt.Printf("[DEBUG] Publicando no tópico: %s\n", topico)
+	
 	token := mqttClient.Publish(topico, 0, false, payload)
-	token.Wait()
+	if token.Wait() && token.Error() != nil {
+		fmt.Printf("[ERRO] Falha ao publicar entrada na fila: %v\n", token.Error())
+	} else {
+		fmt.Printf("[DEBUG] Mensagem publicada com sucesso no tópico: %s\n", topico)
+	}
 }
 
 var messageChan = make(chan protocolo.Mensagem, 10)
 
 func handleMensagemServidor(client mqtt.Client, msg mqtt.Message) {
+	fmt.Printf("[DEBUG] Mensagem recebida no tópico: %s\n", msg.Topic())
+	fmt.Printf("[DEBUG] Payload: %s\n", string(msg.Payload()))
+	
 	var mensagem protocolo.Mensagem
 	if err := json.Unmarshal(msg.Payload(), &mensagem); err != nil {
-		log.Printf("Erro ao decodificar mensagem: %v", err)
+		log.Printf("[ERRO] Erro ao decodificar mensagem: %v", err)
 		return
 	}
 
+	fmt.Printf("[DEBUG] Comando recebido: %s\n", mensagem.Comando)
+	
 	// Processa a mensagem
 	processarMensagemServidor(mensagem)
 }
@@ -208,22 +290,37 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 		token.Wait()
 
 	case "AGUARDANDO_OPONENTE":
-		fmt.Printf("\n[MATCHMAKING] Aguardando oponente...\n> ")
+		fmt.Printf("\n[MATCHMAKING] Aguardando oponente...\n")
+		fmt.Printf("[DEBUG] meuID=%s, salaAtual=%s\n", meuID, salaAtual)
+		fmt.Print("> ")
 
 	case "PARTIDA_ENCONTRADA":
+		fmt.Printf("[DEBUG] PARTIDA_ENCONTRADA recebida!\n")
+		fmt.Printf("[DEBUG] Dados brutos: %s\n", string(msg.Dados))
+		
 		var dados protocolo.DadosPartidaEncontrada
-		json.Unmarshal(msg.Dados, &dados)
+		if err := json.Unmarshal(msg.Dados, &dados); err != nil {
+			fmt.Printf("[ERRO] Falha ao decodificar PARTIDA_ENCONTRADA: %v\n", err)
+			return
+		}
+		
+		fmt.Printf("[DEBUG] SalaID=%s, OponenteID=%s, OponenteNome=%s\n", dados.SalaID, dados.OponenteID, dados.OponenteNome)
+		
 		salaAtual = dados.SalaID
 		oponenteID = dados.OponenteID
 		oponenteNome = dados.OponenteNome
 
 		fmt.Printf("\n[PARTIDA] Partida encontrada contra '%s'! (Sala: %s)\n", oponenteNome, salaAtual)
+		fmt.Printf("[DEBUG] Estado atual: meuID=%s, oponenteID=%s, salaAtual=%s\n", meuID, oponenteID, salaAtual)
 		fmt.Println("Use /comprar para adquirir seu pacote inicial de cartas.")
 
 		// Subscreve aos eventos da partida
 		topicoPartida := fmt.Sprintf("partidas/%s/eventos", salaAtual)
+		fmt.Printf("[DEBUG] Inscrevendo-se no tópico da partida: %s\n", topicoPartida)
 		if token := mqttClient.Subscribe(topicoPartida, 0, handleEventoPartida); token.Wait() && token.Error() != nil {
-			log.Printf("Erro ao se inscrever no tópico da partida: %v", token.Error())
+			log.Printf("[ERRO] Erro ao se inscrever no tópico da partida: %v", token.Error())
+		} else {
+			fmt.Printf("[DEBUG] Inscrito com sucesso no tópico da partida: %s\n", topicoPartida)
 		}
 
 	case "TROCA_CONCLUIDA":
@@ -457,7 +554,7 @@ func processarComando(entrada string) {
 		cartaID := partes[1]
 		jogarCarta(cartaID)
 
-	case "/cartas":
+	case "/cartas", "/inventario":
 		mostrarCartas()
 
 	case "/ajuda", "/help":
@@ -468,6 +565,10 @@ func processarComando(entrada string) {
 		os.Exit(0)
 	case "/trocar":
 		iniciarProcessoDeTroca()
+	
+	case "/conectar-carteira", "/conectar":
+		reconectarCarteira()
+	
 	default:
 		// Se não for um comando, envia como chat
 		if salaAtual != "" {
@@ -478,12 +579,91 @@ func processarComando(entrada string) {
 	}
 }
 
+func reconectarCarteira() {
+	fmt.Println("\n=== Reconectar Carteira Blockchain ===")
+	
+	// Verifica se já está conectada
+	if blockchainEnabled && chavePrivada != nil {
+		fmt.Printf("✓ Carteira já conectada: %s\n", contaBlockchain.Hex())
+		fmt.Println("Use /cartas para ver seu inventário na blockchain.")
+		return
+	}
+	
+	// Tenta inicializar blockchain se ainda não foi feito
+	if blockchainClient == nil {
+		fmt.Println("Inicializando conexão com blockchain...")
+		if err := inicializarBlockchain(); err != nil {
+			fmt.Printf("[ERRO] Falha ao conectar à blockchain: %v\n", err)
+			fmt.Println("Certifique-se de que o Geth está rodando (docker ps)")
+			return
+		}
+	}
+	
+	// Tenta carregar a carteira
+	fmt.Println("Carregando carteira...")
+	if err := carregarCarteira(); err != nil {
+		fmt.Printf("[ERRO] Falha ao carregar carteira: %v\n", err)
+		fmt.Println("\nDicas:")
+		fmt.Println("- Verifique se a senha está correta")
+		fmt.Println("- Execute criar-conta-jogador.bat para criar uma nova conta")
+		fmt.Println("- Use fundar-conta.bat para adicionar ETH à sua conta")
+		return
+	}
+	
+	fmt.Println("✓ Carteira conectada com sucesso!")
+	fmt.Printf("Endereço: %s\n", contaBlockchain.Hex())
+	fmt.Println("Agora você pode usar /comprar para comprar cartas na blockchain!")
+}
+
 func comprarPacote() {
+	fmt.Printf("[DEBUG] comprarPacote() chamado\n")
+	fmt.Printf("[DEBUG] blockchainEnabled=%v, chavePrivada!=nil=%v\n", blockchainEnabled, chavePrivada != nil)
+	fmt.Printf("[DEBUG] salaAtual=%s, meuID=%s\n", salaAtual, meuID)
+	
+	// Se blockchain está habilitada, usa blockchain
+	if blockchainEnabled && chavePrivada != nil {
+		fmt.Println("[BLOCKCHAIN] Comprando pacote na blockchain...")
+		fmt.Printf("[DEBUG] Chamando comprarPacoteBlockchain()...\n")
+		if err := comprarPacoteBlockchain(); err != nil {
+			fmt.Printf("[ERRO] Falha ao comprar na blockchain: %v\n", err)
+			return
+		}
+		fmt.Printf("[DEBUG] comprarPacoteBlockchain() concluído com sucesso\n")
+		
+		// Atualiza inventário da blockchain
+		cartas, err := obterInventarioBlockchain()
+		if err == nil {
+			meuInventario = cartas
+			fmt.Printf("[OK] Você agora possui %d cartas!\n", len(cartas))
+		}
+		
+		// Notifica o servidor sobre a compra (opcional, para sincronização)
+		if salaAtual != "" {
+			dados := map[string]string{
+				"cliente_id": meuID,
+				"endereco":    contaBlockchain.Hex(),
+			}
+			mensagem := protocolo.Mensagem{
+				Comando: "COMPRAR_PACOTE",
+				Dados:   mustJSON(dados),
+			}
+			payload, _ := json.Marshal(mensagem)
+			topico := fmt.Sprintf("partidas/%s/comandos", salaAtual)
+			mqttClient.Publish(topico, 0, false, payload)
+		}
+		return
+	}
+	
+	// Fallback: usa o método antigo via servidor (se não tiver blockchain)
 	if salaAtual == "" {
 		fmt.Println("[ERRO] Você não está em uma partida.")
+		fmt.Println("[INFO] Para comprar cartas na blockchain, use /conectar-carteira primeiro.")
 		return
 	}
 
+	fmt.Println("[AVISO] Blockchain não conectada.")
+	fmt.Println("[INFO] Use /conectar-carteira para conectar sua carteira e comprar na blockchain.")
+	fmt.Println("[INFO] Ou usando método via servidor...")
 	dados := map[string]string{"cliente_id": meuID}
 	mensagem := protocolo.Mensagem{
 		Comando: "COMPRAR_PACOTE",
@@ -577,13 +757,35 @@ func enviarChat(texto string) {
 }
 
 func mostrarCartas() {
+	// Se blockchain está habilitada, busca da blockchain primeiro
+	if blockchainEnabled && chavePrivada != nil {
+		fmt.Println("[BLOCKCHAIN] Buscando inventário da blockchain...")
+		cartas, err := obterInventarioBlockchain()
+		if err == nil {
+			meuInventario = cartas
+			fmt.Printf("[OK] Inventário atualizado da blockchain\n")
+		} else {
+			fmt.Printf("[AVISO] Erro ao buscar da blockchain: %v\n", err)
+			fmt.Println("Mostrando inventário local...")
+		}
+	}
+	
 	if len(meuInventario) == 0 {
-		fmt.Println("[INFO] Você não possui cartas. Use /comprar para adquirir um pacote.")
+		if blockchainEnabled && chavePrivada != nil {
+			fmt.Println("[INFO] Você não possui cartas na blockchain. Use /comprar para adquirir um pacote.")
+		} else {
+			fmt.Println("[INFO] Você não possui cartas. Use /comprar para adquirir um pacote.")
+			fmt.Println("[INFO] Para comprar cartas na blockchain, conecte sua carteira ao iniciar o jogo.")
+		}
 		return
 	}
 
 	fmt.Println("\n╔═══════════════════════════════════════════════════════════╗")
-	fmt.Println("║                    SUAS CARTAS                            ║")
+	if blockchainEnabled && chavePrivada != nil {
+		fmt.Printf("║          SUAS CARTAS (Blockchain: %s)          ║\n", contaBlockchain.Hex()[:10]+"...")
+	} else {
+		fmt.Println("║                    SUAS CARTAS                            ║")
+	}
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 
 	for i, carta := range meuInventario {
@@ -597,8 +799,14 @@ func mostrarCartas() {
 
 func mostrarAjuda() {
 	fmt.Println("\nComandos disponíveis:")
-	fmt.Println("  /cartas                - Mostra suas cartas")
-	fmt.Println("  /comprar               - Compra um novo pacote de cartas")
+	fmt.Println("  /cartas, /inventario   - Mostra suas cartas (busca da blockchain se conectado)")
+	fmt.Println("  /comprar               - Compra um novo pacote de cartas (blockchain)")
+	fmt.Println("  /conectar-carteira    - Conecta/reconecta sua carteira blockchain")
+	if blockchainEnabled && chavePrivada != nil {
+		fmt.Printf("  [BLOCKCHAIN] Carteira conectada: %s\n", contaBlockchain.Hex())
+	} else {
+		fmt.Println("  [INFO] Use /conectar-carteira para conectar sua carteira blockchain")
+	}
 	fmt.Println("  /jogar <ID_da_carta>   - Joga uma carta da sua mão")
 	fmt.Println("  /trocar                - Propõe uma troca de cartas com o oponente")
 	fmt.Println("  /ajuda                 - Mostra esta lista de comandos")
