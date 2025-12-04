@@ -9,6 +9,13 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BLOCKCHAIN_DIR="$PROJECT_DIR/Blockchain"
 JOGO_DIR="$PROJECT_DIR/Jogo"
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "========================================"
 echo "Parando Infraestrutura"
 echo "========================================"
@@ -17,14 +24,14 @@ echo ""
 # Para jogo
 echo "[1/2] Parando jogo..."
 cd "$JOGO_DIR"
-docker-compose down
+$DOCKER_COMPOSE down
 echo "[OK] Jogo parado"
 echo ""
 
 # Para blockchain
 echo "[2/2] Parando blockchain..."
 cd "$BLOCKCHAIN_DIR"
-docker-compose -f docker-compose-blockchain.yml down
+$DOCKER_COMPOSE -f docker-compose-blockchain.yml down
 echo "[OK] Blockchain parada"
 echo ""
 

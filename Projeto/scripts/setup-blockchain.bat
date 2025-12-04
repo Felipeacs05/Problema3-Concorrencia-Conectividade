@@ -30,12 +30,38 @@ if %ERRORLEVEL% NEQ 0 (
 REM Compila o utilitário blockchain-utils
 echo [1/9] Compilando utilitario blockchain-utils...
 cd /d "%TOOLS_DIR%"
+
+REM Remove executável antigo se existir (pode estar corrompido ou incompatível)
+if exist "blockchain-utils.exe" (
+    echo Removendo executavel antigo...
+    del /q "blockchain-utils.exe"
+)
+
+REM Atualiza dependências
 go mod tidy
+
+REM Compila explicitamente para Windows x64
+set GOOS=windows
+set GOARCH=amd64
 go build -o blockchain-utils.exe blockchain-utils.go
+
+REM Limpa variáveis de ambiente
+set GOOS=
+set GOARCH=
+
 if not exist "%TOOLS_DIR%\blockchain-utils.exe" (
     echo ERRO: Falha ao compilar blockchain-utils
     pause
     exit /b 1
+)
+
+REM Testa se o executável funciona
+echo Testando executavel...
+"%TOOLS_DIR%\blockchain-utils.exe" >nul 2>&1
+if %ERRORLEVEL% EQU 1 (
+    echo [OK] Executavel funcionando corretamente
+) else (
+    echo [AVISO] Executavel pode ter problemas, mas continuando...
 )
 echo [OK] Utilitario compilado
 echo.
@@ -79,9 +105,21 @@ echo.
 
 REM Cria conta
 echo [4/9] Criando nova conta...
+echo Executando: "%TOOLS_DIR%\blockchain-utils.exe" criar-conta "%KEYSTORE_DIR%" "123456"
 "%TOOLS_DIR%\blockchain-utils.exe" criar-conta "%KEYSTORE_DIR%" "123456"
 if %ERRORLEVEL% NEQ 0 (
+    echo.
     echo ERRO: Falha ao criar conta
+    echo.
+    echo Possiveis causas:
+    echo   - Executavel corrompido ou incompativel
+    echo   - Problema de permissoes
+    echo   - Go nao esta instalado corretamente
+    echo.
+    echo Solucoes:
+    echo   1. Tente executar manualmente: "%TOOLS_DIR%\blockchain-utils.exe" criar-conta "%KEYSTORE_DIR%" "123456"
+    echo   2. Recompile manualmente: cd "%TOOLS_DIR%" ^&^& go build -o blockchain-utils.exe blockchain-utils.go
+    echo   3. Verifique se Go esta instalado: go version
     pause
     exit /b 1
 )

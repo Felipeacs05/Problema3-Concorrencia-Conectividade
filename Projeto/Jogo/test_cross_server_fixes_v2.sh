@@ -3,6 +3,13 @@
 # Script de teste para verificar as correções de comunicação cross-server
 # Versão 2 - Com correções mais robustas
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "=== TESTE DE CORREÇÕES CROSS-SERVER V2 ==="
 echo "Testando comunicação entre servidores com correções robustas..."
 echo
@@ -101,8 +108,8 @@ monitor_logs() {
     echo "Pressione Ctrl+C para parar o monitoramento"
     echo
     
-    # Monitorar logs do docker-compose
-    docker-compose logs -f --tail=50 servidor1 servidor2 servidor3
+    # Monitorar logs do docker compose
+    $DOCKER_COMPOSE logs -f --tail=50 servidor1 servidor2 servidor3
 }
 
 # Função principal
@@ -140,7 +147,7 @@ main() {
     echo "=== TESTES CONCLUÍDOS ==="
     echo
     echo "Para monitorar logs em tempo real, execute:"
-    echo "docker-compose logs -f servidor1 servidor2 servidor3"
+    echo "docker compose logs -f servidor1 servidor2 servidor3"
     echo
     echo "Para testar manualmente:"
     echo "1. Execute o cliente em servidor1"

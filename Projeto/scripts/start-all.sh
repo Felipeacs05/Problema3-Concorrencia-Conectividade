@@ -9,6 +9,13 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BLOCKCHAIN_DIR="$PROJECT_DIR/Blockchain"
 JOGO_DIR="$PROJECT_DIR/Jogo"
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "========================================"
 echo "Iniciando Infraestrutura Completa"
 echo "========================================"
@@ -24,7 +31,7 @@ fi
 # Inicia blockchain
 echo "[1/2] Iniciando blockchain..."
 cd "$BLOCKCHAIN_DIR"
-docker-compose -f docker-compose-blockchain.yml up -d
+$DOCKER_COMPOSE -f docker-compose-blockchain.yml up -d
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao iniciar blockchain"
     exit 1
@@ -47,7 +54,7 @@ echo ""
 # Inicia jogo
 echo "[2/2] Iniciando jogo..."
 cd "$JOGO_DIR"
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao iniciar jogo"
     exit 1

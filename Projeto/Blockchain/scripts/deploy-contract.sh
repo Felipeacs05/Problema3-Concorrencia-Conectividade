@@ -16,7 +16,7 @@ echo
 echo "[1/3] Verificando se o Geth está rodando..."
 if ! docker ps | grep -q "geth-node"; then
     echo "[ERRO] Geth não está rodando!"
-    echo "Execute: docker-compose up -d"
+    echo "Execute: docker compose up -d (ou docker-compose up -d)"
     exit 1
 fi
 echo "[OK] Geth está rodando"

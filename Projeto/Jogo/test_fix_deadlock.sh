@@ -2,6 +2,13 @@
 
 # Script para testar a correção do deadlock em partidas cross-server
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "=========================================="
 echo "TESTE: Correção de Deadlock Cross-Server"
 echo "=========================================="
@@ -9,16 +16,16 @@ echo ""
 
 # Limpa containers antigos
 echo "[1/4] Limpando ambiente..."
-docker-compose down -v 2>/dev/null
+$DOCKER_COMPOSE down -v 2>/dev/null
 docker system prune -f >/dev/null 2>&1
 
 # Reconstrói as imagens
 echo "[2/4] Reconstruindo imagens..."
-docker-compose build --no-cache >/dev/null 2>&1
+$DOCKER_COMPOSE build --no-cache >/dev/null 2>&1
 
 # Inicia os servidores
 echo "[3/4] Iniciando servidores..."
-docker-compose up -d broker1 broker2 broker3 servidor1 servidor2 servidor3
+$DOCKER_COMPOSE up -d broker1 broker2 broker3 servidor1 servidor2 servidor3
 sleep 10
 
 echo "[4/4] Servidores prontos. Aguardando eleição de líder..."
@@ -32,13 +39,13 @@ echo ""
 echo "1. Abra DOIS TERMINAIS separados"
 echo ""
 echo "2. No TERMINAL 1, execute:"
-echo "   docker-compose run --rm cliente"
+echo "   docker compose run --rm cliente"
 echo "   - Digite um nome (ex: Felipe)"
 echo "   - Escolha servidor 1"
 echo "   - Aguarde a partida"
 echo ""
 echo "3. No TERMINAL 2, execute:"
-echo "   docker-compose run --rm cliente"  
+echo "   docker compose run --rm cliente"  
 echo "   - Digite um nome (ex: Davi)"
 echo "   - Escolha servidor 2"
 echo "   - Aguarde encontrar oponente"
@@ -58,10 +65,10 @@ echo "=========================================="
 echo "LOGS DOS SERVIDORES:"
 echo "=========================================="
 echo "Para acompanhar os logs detalhados:"
-echo "  docker-compose logs -f servidor1 servidor2"
+echo "  docker compose logs -f servidor1 servidor2"
 echo ""
 echo "Para parar o teste:"
-echo "  docker-compose down"
+echo "  docker compose down"
 echo ""
 
 

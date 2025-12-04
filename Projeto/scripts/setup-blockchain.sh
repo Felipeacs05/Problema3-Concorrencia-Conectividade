@@ -13,6 +13,13 @@ DATA_DIR="$BLOCKCHAIN_DIR/data"
 KEYSTORE_DIR="$DATA_DIR/keystore"
 GENESIS_FILE="$BLOCKCHAIN_DIR/genesis.json"
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "========================================"
 echo "Configurando Blockchain Privada"
 echo "========================================"
@@ -40,7 +47,7 @@ echo ""
 # Para containers se estiverem rodando
 echo "[2/7] Parando containers blockchain..."
 cd "$BLOCKCHAIN_DIR"
-docker-compose -f docker-compose-blockchain.yml down 2>/dev/null || true
+$DOCKER_COMPOSE -f docker-compose-blockchain.yml down 2>/dev/null || true
 echo "[OK] Containers parados"
 echo ""
 
@@ -133,7 +140,7 @@ echo ""
 
 # Inicia containers
 echo "[9/10] Iniciando containers blockchain..."
-docker-compose -f docker-compose-blockchain.yml up -d
+$DOCKER_COMPOSE -f docker-compose-blockchain.yml up -d
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao iniciar containers"
     exit 1

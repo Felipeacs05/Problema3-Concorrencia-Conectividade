@@ -12,6 +12,13 @@ DATA_DIR="$PROJECT_DIR/data"
 KEYSTORE_DIR="$DATA_DIR/keystore"
 GENESIS_FILE="$PROJECT_DIR/genesis.json"
 
+# Detecta qual comando docker compose usar (novo: "docker compose", antigo: "docker-compose")
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
 echo "========================================"
 echo "Configurando Blockchain Privada"
 echo "========================================"
@@ -39,7 +46,7 @@ echo ""
 # Para containers se estiverem rodando
 echo "[2/6] Parando containers..."
 cd "$PROJECT_DIR"
-docker-compose down 2>/dev/null || true
+$DOCKER_COMPOSE down 2>/dev/null || true
 echo "✓ Containers parados"
 echo ""
 
@@ -114,7 +121,7 @@ echo ""
 
 # Inicializa blockchain
 echo "Inicializando blockchain..."
-docker-compose run --rm geth --datadir /root/.ethereum init /genesis.json
+$DOCKER_COMPOSE run --rm geth --datadir /root/.ethereum init /genesis.json
 if [ $? -ne 0 ]; then
     echo "ERRO: Falha ao inicializar blockchain"
     exit 1
@@ -123,7 +130,7 @@ echo ""
 
 # Inicia nó
 echo "Iniciando nó Geth..."
-docker-compose up -d geth
+$DOCKER_COMPOSE up -d geth
 echo "Aguardando inicialização..."
 sleep 10
 echo ""
