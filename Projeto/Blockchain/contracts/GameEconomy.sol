@@ -456,6 +456,79 @@ contract GameEconomy {
         return propostasTroca[propostaId];
     }
     
+    /**
+     * @dev Registra uma troca de cartas executada pelo servidor (admin)
+     * BAREMA ITEM 8: TROCAS - Permite que o servidor registre trocas em nome dos jogadores
+     * Esta função é necessária porque o servidor não tem acesso às chaves privadas dos jogadores
+     * @param _jogador1 Endereço do jogador que ofereceu a carta
+     * @param _jogador2 Endereço do jogador que recebeu a oferta
+     * @param _cartaJogador1 ID da carta oferecida pelo jogador1
+     * @param _cartaJogador2 ID da carta oferecida pelo jogador2
+     */
+    function registrarTrocaAdmin(
+        address _jogador1,
+        address _jogador2,
+        uint256 _cartaJogador1,
+        uint256 _cartaJogador2
+    ) public onlyOwner {
+        require(_jogador1 != address(0), "Jogador1 invalido");
+        require(_jogador2 != address(0), "Jogador2 invalido");
+        require(_jogador1 != _jogador2, "Nao pode trocar consigo mesmo");
+        require(proprietario[_cartaJogador1] == _jogador1, "Jogador1 nao possui esta carta");
+        require(proprietario[_cartaJogador2] == _jogador2, "Jogador2 nao possui esta carta");
+        
+        // Cria registro da proposta para auditabilidade
+        uint256 propostaId = _propostaCounter;
+        _propostaCounter++;
+        
+        propostasTroca[propostaId] = PropostaTroca({
+            jogador1: _jogador1,
+            jogador2: _jogador2,
+            cartaJogador1: _cartaJogador1,
+            cartaJogador2: _cartaJogador2,
+            aceita: true,
+            executada: true,
+            timestamp: block.timestamp
+        });
+        
+        // Executa a transferência atômica das cartas
+        _transferirCartaInterno(_jogador1, _jogador2, _cartaJogador1);
+        _transferirCartaInterno(_jogador2, _jogador1, _cartaJogador2);
+        
+        emit PropostaTrocaCriada(propostaId, _jogador1, _jogador2, _cartaJogador1, _cartaJogador2);
+        emit TrocaExecutada(propostaId, _jogador1, _jogador2, _cartaJogador1, _cartaJogador2);
+    }
+    
+    /**
+     * @dev Função interna para transferir carta entre jogadores (usada pelo admin)
+     * @param _de Endereço de origem
+     * @param _para Endereço de destino
+     * @param tokenId ID da carta
+     */
+    function _transferirCartaInterno(address _de, address _para, uint256 tokenId) internal {
+        require(proprietario[tokenId] == _de, "Remetente nao possui a carta");
+        
+        proprietario[tokenId] = _para;
+        
+        // Remove do inventário do remetente
+        uint256[] storage invDe = inventario[_de];
+        for (uint256 i = 0; i < invDe.length; i++) {
+            if (invDe[i] == tokenId) {
+                invDe[i] = invDe[invDe.length - 1];
+                invDe.pop();
+                break;
+            }
+        }
+        
+        // Adiciona ao inventário do destinatário
+        inventario[_para].push(tokenId);
+        
+        saldo[_de]--;
+        saldo[_para]++;
+        
+        emit CartaTransferida(tokenId, _de, _para);
+    }
+    
     // ===================== Funções de Partidas =====================
     
     /**

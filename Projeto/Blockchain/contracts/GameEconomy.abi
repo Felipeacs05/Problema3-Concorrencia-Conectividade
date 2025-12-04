@@ -270,6 +270,18 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {"name": "_jogador1", "type": "address"},
+      {"name": "_jogador2", "type": "address"},
+      {"name": "_cartaJogador1", "type": "uint256"},
+      {"name": "_cartaJogador2", "type": "uint256"}
+    ],
+    "name": "registrarTrocaAdmin",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "retirarFundos",
     "outputs": [],
@@ -294,5 +306,7 @@
     "type": "function"
   }
 ]
+
+
 
 

@@ -260,6 +260,7 @@ func (m *Manager) ObterCarta(cartaID *big.Int) (tipos.Carta, error) {
 }
 
 // CriarPropostaTroca cria uma proposta de troca de cartas na blockchain
+// NOTA: Esta função está DEPRECATED - use RegistrarTrocaAdmin para trocas coordenadas pelo servidor
 func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, carta2 *big.Int) (*big.Int, error) {
 	// Prepara a chamada à função criarPropostaTroca
 	data, err := m.contractABI.Pack("criarPropostaTroca", jogador2, carta1, carta2)
@@ -294,6 +295,58 @@ func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, 
 	}
 
 	return nil, fmt.Errorf("id da proposta não encontrado nos logs")
+}
+
+// RegistrarTrocaAdmin registra uma troca de cartas na blockchain usando a conta do servidor (admin)
+// Esta função permite ao servidor registrar trocas em nome dos jogadores, passando os endereços corretos
+// que serão registrados na blockchain para auditabilidade
+func (m *Manager) RegistrarTrocaAdmin(jogador1, jogador2 common.Address, carta1, carta2 *big.Int) (*big.Int, error) {
+	log.Printf("[BLOCKCHAIN] RegistrarTrocaAdmin: jogador1=%s, jogador2=%s, carta1=%s, carta2=%s",
+		jogador1.Hex(), jogador2.Hex(), carta1.String(), carta2.String())
+
+	// Prepara a chamada à função registrarTrocaAdmin
+	// Esta função aceita os 4 parâmetros: jogador1, jogador2, cartaJogador1, cartaJogador2
+	data, err := m.contractABI.Pack("registrarTrocaAdmin", jogador1, jogador2, carta1, carta2)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao preparar chamada registrarTrocaAdmin: %v", err)
+	}
+
+	// Envia a transação usando a conta do servidor (que é o owner do contrato)
+	// Isso é crucial: usamos serverAccount para que msg.sender seja o owner
+	tx, err := m.enviarTransacao(m.serverAccount, data, big.NewInt(0))
+	if err != nil {
+		return nil, fmt.Errorf("erro ao enviar transação: %v", err)
+	}
+
+	log.Printf("[BLOCKCHAIN] Transação enviada: %s", tx.Hash().Hex())
+
+	// Aguarda confirmação
+	receipt, err := m.aguardarConfirmacao(tx.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("erro ao aguardar confirmação: %v", err)
+	}
+
+	if receipt.Status == 0 {
+		return nil, fmt.Errorf("transação falhou (status=0)")
+	}
+
+	log.Printf("[BLOCKCHAIN] Transação confirmada! Status=%d, Logs=%d", receipt.Status, len(receipt.Logs))
+
+	// Lê o evento TrocaExecutada para obter o ID da proposta
+	for _, vLog := range receipt.Logs {
+		if vLog.Address == m.contractAddress && len(vLog.Topics) >= 4 {
+			// O ID da proposta é o primeiro argumento indexado (Topic[1])
+			propostaID := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			log.Printf("[BLOCKCHAIN] ✓ Troca registrada com ID: %s", propostaID.String())
+			log.Printf("[BLOCKCHAIN] Jogador1 (ofertante): %s", jogador1.Hex())
+			log.Printf("[BLOCKCHAIN] Jogador2 (desejado): %s", jogador2.Hex())
+			return propostaID, nil
+		}
+	}
+
+	// Se não encontrou o evento, ainda assim a troca foi bem sucedida
+	log.Printf("[BLOCKCHAIN] ✓ Troca registrada (ID não encontrado nos logs)")
+	return big.NewInt(0), nil
 }
 
 // AceitarPropostaTroca aceita uma proposta de troca

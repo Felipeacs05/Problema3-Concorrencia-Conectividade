@@ -2667,8 +2667,8 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 		enderecoOferta := clienteOferta.EnderecoBlockchain
 		enderecoDesejado := clienteDesejado.EnderecoBlockchain
 		
-		log.Printf("[TROCA_BLOCKCHAIN] Endereço ofertante: %s", enderecoOferta)
-		log.Printf("[TROCA_BLOCKCHAIN] Endereço desejado: %s", enderecoDesejado)
+		log.Printf("[TROCA_BLOCKCHAIN] Endereço jogador ofertante (%s): %s", req.NomeJogadorOferta, enderecoOferta)
+		log.Printf("[TROCA_BLOCKCHAIN] Endereço jogador desejado (%s): %s", req.NomeJogadorDesejado, enderecoDesejado)
 		
 		if enderecoOferta != "" && enderecoDesejado != "" {
 			// Converte IDs das cartas para tokenIds (big.Int)
@@ -2687,29 +2687,31 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 				addrOferta := common.HexToAddress(enderecoOferta)
 				addrDesejado := common.HexToAddress(enderecoDesejado)
 				
-				// Executa a troca na blockchain
-				// Primeiro cria a proposta (jogador ofertante cria proposta)
-				propostaID, err := s.BlockchainManager.CriarPropostaTroca(
-					addrOferta,
-					addrDesejado,
-					big.NewInt(tokenIdOferta),
-					big.NewInt(tokenIdDesejada),
+				// CORREÇÃO: Usa RegistrarTrocaAdmin ao invés de CriarPropostaTroca + AceitarPropostaTroca
+				// A função RegistrarTrocaAdmin é executada pelo servidor (admin/owner) e registra
+				// os endereços CORRETOS dos jogadores (ofertante e desejado) na transação
+				log.Printf("[TROCA_BLOCKCHAIN] Registrando troca via RegistrarTrocaAdmin...")
+				log.Printf("[TROCA_BLOCKCHAIN] Jogador1 (ofertante): %s (%s)", req.NomeJogadorOferta, addrOferta.Hex())
+				log.Printf("[TROCA_BLOCKCHAIN] Jogador2 (desejado): %s (%s)", req.NomeJogadorDesejado, addrDesejado.Hex())
+				log.Printf("[TROCA_BLOCKCHAIN] Carta1 (oferecida): ID=%d, Nome=%s", tokenIdOferta, cartaOferta.Nome)
+				log.Printf("[TROCA_BLOCKCHAIN] Carta2 (desejada): ID=%d, Nome=%s", tokenIdDesejada, cartaDesejada.Nome)
+				
+				propostaID, err := s.BlockchainManager.RegistrarTrocaAdmin(
+					addrOferta,    // Endereço do jogador ofertante (jogador1)
+					addrDesejado,  // Endereço do jogador desejado (jogador2)
+					big.NewInt(tokenIdOferta),   // ID da carta oferecida
+					big.NewInt(tokenIdDesejada), // ID da carta desejada
 				)
 				
 				if err != nil {
-					log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao criar proposta de troca: %v", err)
+					log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao registrar troca: %v", err)
 					// Continua com a troca local mesmo se a blockchain falhar
 				} else {
-					log.Printf("[TROCA_BLOCKCHAIN] Proposta criada com ID: %s", propostaID.String())
-					
-					// Aceita a proposta (jogador desejado aceita)
-					err = s.BlockchainManager.AceitarPropostaTroca(addrDesejado, propostaID)
-					if err != nil {
-						log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao aceitar proposta de troca: %v", err)
-						// Continua com a troca local mesmo se a blockchain falhar
-					} else {
-						log.Printf("[TROCA_BLOCKCHAIN] ✓ Troca executada com sucesso na blockchain!")
-					}
+					log.Printf("[TROCA_BLOCKCHAIN] ✓ Troca registrada com sucesso na blockchain!")
+					log.Printf("[TROCA_BLOCKCHAIN] ID da proposta/troca: %s", propostaID.String())
+					log.Printf("[TROCA_BLOCKCHAIN] Os endereços registrados são:")
+					log.Printf("[TROCA_BLOCKCHAIN]   - Jogador ofertante: %s", addrOferta.Hex())
+					log.Printf("[TROCA_BLOCKCHAIN]   - Jogador desejado: %s", addrDesejado.Hex())
 				}
 			} else {
 				log.Printf("[TROCA_BLOCKCHAIN_AVISO] Não foi possível converter IDs para tokenIds: err1=%v, err2=%v", err1, err2)
