@@ -173,16 +173,17 @@ cd "$BLOCKCHAIN_DIR/scripts"
 # Verifica se o contrato foi compilado
 if [ ! -f "$BLOCKCHAIN_DIR/contracts/GameEconomy.bin" ]; then
     echo "[AVISO] Contrato não compilado. Compilando..."
+    chmod +x compile-contract.sh 2>/dev/null || true
     ./compile-contract.sh
     if [ $? -ne 0 ]; then
         echo "[AVISO] Falha ao compilar contrato. Execute compile-contract.sh manualmente."
         echo ""
-        return 0
     fi
 fi
 
 # Executa deploy
 if [ -f "deploy-contract.sh" ]; then
+    chmod +x deploy-contract.sh 2>/dev/null || true
     ./deploy-contract.sh
     if [ $? -eq 0 ]; then
         echo "[OK] Contrato deployado com sucesso"
