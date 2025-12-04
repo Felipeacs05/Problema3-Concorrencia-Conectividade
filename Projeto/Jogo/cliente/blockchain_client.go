@@ -327,11 +327,12 @@ func obterInventarioBlockchain() ([]protocolo.Carta, error) {
 	return cartas, nil
 }
 
-// obterCartaBlockchain obtém os dados de uma carta
+// obterCartaBlockchain obtém os dados de uma carta usando o mapeamento público 'cartas'
 func obterCartaBlockchain(cartaID *big.Int) (protocolo.Carta, error) {
-	data, err := contractABI.Pack("obterCarta", cartaID)
+	// Usa o mapeamento público 'cartas' que retorna campos individuais
+	data, err := contractABI.Pack("cartas", cartaID)
 	if err != nil {
-		return protocolo.Carta{}, err
+		return protocolo.Carta{}, fmt.Errorf("erro ao preparar chamada: %v", err)
 	}
 
 	msg := ethereum.CallMsg{
@@ -341,29 +342,52 @@ func obterCartaBlockchain(cartaID *big.Int) (protocolo.Carta, error) {
 
 	result, err := blockchainClient.CallContract(context.Background(), msg, nil)
 	if err != nil {
-		return protocolo.Carta{}, err
+		return protocolo.Carta{}, fmt.Errorf("erro ao chamar contrato: %v", err)
 	}
 
-	var cartaData struct {
-		Id        *big.Int
-		Nome      string
-		Naipe     string
-		Valor     *big.Int
-		Raridade  string
-		Timestamp *big.Int
-	}
-
-	err = contractABI.UnpackIntoInterface(&cartaData, "obterCarta", result)
+	// O mapeamento público retorna os campos individualmente (não como struct)
+	// Saída: id, nome, naipe, valor, raridade, timestamp
+	values, err := contractABI.Unpack("cartas", result)
 	if err != nil {
-		return protocolo.Carta{}, err
+		return protocolo.Carta{}, fmt.Errorf("erro ao desempacotar: %v", err)
+	}
+
+	if len(values) < 6 {
+		return protocolo.Carta{}, fmt.Errorf("resposta incompleta: esperado 6 campos, recebido %d", len(values))
+	}
+
+	// Extrai os valores individuais
+	id, ok := values[0].(*big.Int)
+	if !ok {
+		return protocolo.Carta{}, fmt.Errorf("tipo inválido para id: %T", values[0])
+	}
+	
+	nome, ok := values[1].(string)
+	if !ok {
+		return protocolo.Carta{}, fmt.Errorf("tipo inválido para nome: %T", values[1])
+	}
+	
+	naipe, ok := values[2].(string)
+	if !ok {
+		return protocolo.Carta{}, fmt.Errorf("tipo inválido para naipe: %T", values[2])
+	}
+	
+	valor, ok := values[3].(*big.Int)
+	if !ok {
+		return protocolo.Carta{}, fmt.Errorf("tipo inválido para valor: %T", values[3])
+	}
+	
+	raridade, ok := values[4].(string)
+	if !ok {
+		return protocolo.Carta{}, fmt.Errorf("tipo inválido para raridade: %T", values[4])
 	}
 
 	return protocolo.Carta{
-		ID:       cartaData.Id.String(),
-		Nome:     cartaData.Nome,
-		Naipe:    cartaData.Naipe,
-		Valor:    int(cartaData.Valor.Int64()),
-		Raridade: cartaData.Raridade,
+		ID:       id.String(),
+		Nome:     nome,
+		Naipe:    naipe,
+		Valor:    int(valor.Int64()),
+		Raridade: raridade,
 	}, nil
 }
 
