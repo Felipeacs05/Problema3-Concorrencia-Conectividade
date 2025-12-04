@@ -85,3 +85,4 @@ echo Executavel criado em: %TOOLS_DIR%\blockchain-utils.exe
 echo.
 pause
 
+

@@ -70,3 +70,4 @@ console.log('Saldo final de $DEST_ADDR: ' + balance + ' ETH');
 echo ""
 echo "✓ Concluído! O jogador agora pode comprar pacotes."
 
+

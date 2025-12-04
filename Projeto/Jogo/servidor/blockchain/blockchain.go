@@ -192,9 +192,11 @@ func (m *Manager) ObterInventario(jogadorAddress common.Address) ([]tipos.Carta,
 }
 
 // ObterCarta retorna os dados de uma carta específica
+// Usa o mapeamento público 'cartas' que retorna campos individuais (mais confiável)
 func (m *Manager) ObterCarta(cartaID *big.Int) (tipos.Carta, error) {
-	// Prepara a chamada à função obterCarta
-	data, err := m.contractABI.Pack("obterCarta", cartaID)
+	// Usa o mapeamento público 'cartas' em vez de 'obterCarta'
+	// O mapeamento retorna campos individuais, não uma struct
+	data, err := m.contractABI.Pack("cartas", cartaID)
 	if err != nil {
 		return tipos.Carta{}, fmt.Errorf("erro ao preparar chamada: %v", err)
 	}
@@ -210,28 +212,50 @@ func (m *Manager) ObterCarta(cartaID *big.Int) (tipos.Carta, error) {
 		return tipos.Carta{}, fmt.Errorf("erro ao chamar contrato: %v", err)
 	}
 
-	// Desempacota o resultado (struct Carta)
-	var cartaData struct {
-		Id        *big.Int
-		Nome      string
-		Naipe     string
-		Valor     *big.Int
-		Raridade  string
-		Timestamp *big.Int
-	}
-
-	err = m.contractABI.UnpackIntoInterface(&cartaData, "obterCarta", result)
+	// O mapeamento público retorna os campos individualmente (não como struct)
+	// Saída: id, nome, naipe, valor, raridade, timestamp
+	values, err := m.contractABI.Unpack("cartas", result)
 	if err != nil {
 		return tipos.Carta{}, fmt.Errorf("erro ao desempacotar resultado: %v", err)
 	}
 
+	if len(values) < 6 {
+		return tipos.Carta{}, fmt.Errorf("resposta incompleta: esperado 6 campos, recebido %d", len(values))
+	}
+
+	// Extrai os valores individuais
+	id, ok := values[0].(*big.Int)
+	if !ok {
+		return tipos.Carta{}, fmt.Errorf("tipo inválido para id: %T", values[0])
+	}
+
+	nome, ok := values[1].(string)
+	if !ok {
+		return tipos.Carta{}, fmt.Errorf("tipo inválido para nome: %T", values[1])
+	}
+
+	naipe, ok := values[2].(string)
+	if !ok {
+		return tipos.Carta{}, fmt.Errorf("tipo inválido para naipe: %T", values[2])
+	}
+
+	valor, ok := values[3].(*big.Int)
+	if !ok {
+		return tipos.Carta{}, fmt.Errorf("tipo inválido para valor: %T", values[3])
+	}
+
+	raridade, ok := values[4].(string)
+	if !ok {
+		return tipos.Carta{}, fmt.Errorf("tipo inválido para raridade: %T", values[4])
+	}
+
 	// Converte para tipos.Carta
 	return tipos.Carta{
-		ID:       cartaData.Id.String(),
-		Nome:     cartaData.Nome,
-		Naipe:    cartaData.Naipe,
-		Valor:    int(cartaData.Valor.Int64()),
-		Raridade: cartaData.Raridade,
+		ID:       id.String(),
+		Nome:     nome,
+		Naipe:    naipe,
+		Valor:    int(valor.Int64()),
+		Raridade: raridade,
 	}, nil
 }
 

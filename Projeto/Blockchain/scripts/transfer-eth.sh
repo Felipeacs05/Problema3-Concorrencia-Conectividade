@@ -63,3 +63,4 @@ console.log('Saldo de $DEST_ADDR: ' + web3.fromWei(balance, 'ether') + ' ETH');
 echo ""
 echo "Transferência concluída!"
 
+
