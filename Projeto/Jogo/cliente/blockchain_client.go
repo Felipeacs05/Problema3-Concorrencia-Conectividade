@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"jogodistribuido/protocolo"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -15,12 +17,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"jogodistribuido/protocolo"
 )
 
 const (
-	rpcURL      = "http://localhost:8545"
-	gasLimit    = uint64(5000000) // Reduzido de 80M para 5M para caber no limite do bloco
+	rpcURL   = "http://localhost:8545"
+	gasLimit = uint64(5000000) // Reduzido de 80M para 5M para caber no limite do bloco
 )
 
 // getKeystorePath retorna o caminho do keystore (tenta vários caminhos possíveis)
@@ -33,25 +34,25 @@ func getKeystorePath() string {
 		"./Blockchain/data/keystore",
 		"../Projeto/Blockchain/data/keystore",
 	}
-	
+
 	for _, path := range paths {
 		if files, err := ioutil.ReadDir(path); err == nil && len(files) > 0 {
 			return path
 		}
 	}
-	
+
 	// Retorna o padrão se nenhum funcionar
 	return "../Blockchain/data/keystore"
 }
 
 var (
-	blockchainClient *ethclient.Client
-	blockchainRPC    *rpc.Client
-	contaBlockchain  common.Address
-	chavePrivada     *keystore.Key
-	contractAddress  common.Address
-	contractABI      abi.ABI
-	senhaConta       string
+	blockchainClient  *ethclient.Client
+	blockchainRPC     *rpc.Client
+	contaBlockchain   common.Address
+	chavePrivada      *keystore.Key
+	contractAddress   common.Address
+	contractABI       abi.ABI
+	senhaConta        string
 	blockchainEnabled bool
 )
 
@@ -79,7 +80,7 @@ func inicializarBlockchain() error {
 		"../Projeto/contract-address.txt",
 		"./contract-address.txt",
 	}
-	
+
 	var contractAddrBytes []byte
 	for _, path := range contractAddrPaths {
 		contractAddrBytes, err = ioutil.ReadFile(path)
@@ -87,13 +88,13 @@ func inicializarBlockchain() error {
 			break
 		}
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("contrato não encontrado. Execute setup-blockchain.bat primeiro")
 	}
-	
+
 	contractAddress = common.HexToAddress(strings.TrimSpace(string(contractAddrBytes)))
-	
+
 	// Carrega ABI (tenta vários caminhos)
 	abiPaths := []string{
 		"../Blockchain/contracts/GameEconomy.abi",
@@ -102,7 +103,7 @@ func inicializarBlockchain() error {
 		"../Projeto/Blockchain/contracts/GameEconomy.abi",
 		"./Blockchain/contracts/GameEconomy.abi",
 	}
-	
+
 	var abiBytes []byte
 	for _, abiPath := range abiPaths {
 		abiBytes, err = ioutil.ReadFile(abiPath)
@@ -110,16 +111,16 @@ func inicializarBlockchain() error {
 			break
 		}
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("ABI do contrato não encontrado")
 	}
-	
+
 	parsedABI, err := abi.JSON(strings.NewReader(string(abiBytes)))
 	if err != nil {
 		return fmt.Errorf("erro ao fazer parse do ABI: %v", err)
 	}
-	
+
 	contractABI = parsedABI
 	// NÃO define blockchainEnabled = true aqui
 	// Só será true quando a carteira também for carregada
@@ -133,7 +134,7 @@ func carregarCarteira() error {
 	// Removido verificação de blockchainEnabled aqui, pois ela só será true ao final desta função
 
 	keystorePath := getKeystorePath()
-	
+
 	// Lista arquivos do keystore
 	files, err := ioutil.ReadDir(keystorePath)
 	if err != nil {
@@ -216,7 +217,7 @@ func comprarPacoteBlockchain() error {
 	fmt.Printf("[DEBUG] comprarPacoteBlockchain() iniciado\n")
 	fmt.Printf("[DEBUG] blockchainEnabled=%v, chavePrivada!=nil=%v\n", blockchainEnabled, chavePrivada != nil)
 	fmt.Printf("[DEBUG] contaBlockchain=%s, contractAddress=%s\n", contaBlockchain.Hex(), contractAddress.Hex())
-	
+
 	if !blockchainEnabled {
 		return fmt.Errorf("blockchain não está habilitada")
 	}
@@ -361,22 +362,22 @@ func obterCartaBlockchain(cartaID *big.Int) (protocolo.Carta, error) {
 	if !ok {
 		return protocolo.Carta{}, fmt.Errorf("tipo inválido para id: %T", values[0])
 	}
-	
+
 	nome, ok := values[1].(string)
 	if !ok {
 		return protocolo.Carta{}, fmt.Errorf("tipo inválido para nome: %T", values[1])
 	}
-	
+
 	naipe, ok := values[2].(string)
 	if !ok {
 		return protocolo.Carta{}, fmt.Errorf("tipo inválido para naipe: %T", values[2])
 	}
-	
+
 	valor, ok := values[3].(*big.Int)
 	if !ok {
 		return protocolo.Carta{}, fmt.Errorf("tipo inválido para valor: %T", values[3])
 	}
-	
+
 	raridade, ok := values[4].(string)
 	if !ok {
 		return protocolo.Carta{}, fmt.Errorf("tipo inválido para raridade: %T", values[4])
@@ -395,7 +396,7 @@ func obterCartaBlockchain(cartaID *big.Int) (protocolo.Carta, error) {
 func enviarTransacaoBlockchain(data []byte, valor *big.Int) (*types.Transaction, error) {
 	fmt.Printf("[DEBUG] enviarTransacaoBlockchain() iniciado\n")
 	fmt.Printf("[DEBUG] contaBlockchain=%s, contractAddress=%s\n", contaBlockchain.Hex(), contractAddress.Hex())
-	
+
 	nonce, err := blockchainClient.PendingNonceAt(context.Background(), contaBlockchain)
 	if err != nil {
 		fmt.Printf("[ERRO] Falha ao obter nonce: %v\n", err)
@@ -420,7 +421,7 @@ func enviarTransacaoBlockchain(data []byte, valor *big.Int) (*types.Transaction,
 
 	tx := types.NewTransaction(nonce, contractAddress, valor, gasLimit, gasPrice, data)
 	fmt.Printf("[DEBUG] Transação criada (antes de assinar)\n")
-	
+
 	txAssinada, err := types.SignTx(tx, types.NewEIP155Signer(chainID), chavePrivada.PrivateKey)
 	if err != nil {
 		fmt.Printf("[ERRO] Falha ao assinar transação: %v\n", err)
@@ -451,3 +452,87 @@ func aguardarConfirmacaoBlockchain(txHash common.Hash) (*types.Receipt, error) {
 	return nil, fmt.Errorf("timeout aguardando confirmação")
 }
 
+// CriarPropostaTrocaBlockchain cria uma proposta diretamente pelo cliente
+func CriarPropostaTrocaBlockchain(oponenteAddressHex string, minhaCartaID string, cartaDesejadaID string) (string, error) {
+	if !blockchainEnabled || chavePrivada == nil {
+		return "", fmt.Errorf("blockchain não habilitada")
+	}
+
+	// 1. Converter Parâmetros
+	oponenteAddr := common.HexToAddress(oponenteAddressHex)
+
+	minhaCartaBig := new(big.Int)
+	minhaCartaBig.SetString(minhaCartaID, 10)
+
+	cartaDesejadaBig := new(big.Int)
+	cartaDesejadaBig.SetString(cartaDesejadaID, 10)
+
+	// 2. Preparar Dados (Pack)
+	data, err := contractABI.Pack("criarPropostaTroca", oponenteAddr, minhaCartaBig, cartaDesejadaBig)
+	if err != nil {
+		return "", fmt.Errorf("erro ao empacotar dados: %v", err)
+	}
+
+	// 3. Enviar Transação (Valor 0 ETH)
+	fmt.Println("[BLOCKCHAIN] Enviando proposta de troca...")
+	tx, err := enviarTransacaoBlockchain(data, big.NewInt(0))
+	if err != nil {
+		return "", fmt.Errorf("erro ao enviar transação: %v", err)
+	}
+
+	// 4. Aguardar Confirmação
+	receipt, err := aguardarConfirmacaoBlockchain(tx.Hash())
+	if err != nil {
+		return "", err
+	}
+
+	if receipt.Status == 0 {
+		return "", fmt.Errorf("transação falhou na blockchain")
+	}
+
+	// 5. Extrair ID da Proposta dos Logs (Event: PropostaTrocaCriada)
+	// O hash do evento PropostaTrocaCriada é o Topic[0]. O ID é o Topic[1] (primeiro indexed)
+	for _, vLog := range receipt.Logs {
+		// Verifica se o log pertence ao nosso contrato
+		if vLog.Address == contractAddress && len(vLog.Topics) >= 2 {
+			// Topic[1] é o propostaId (uint256 indexed)
+			propostaID := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			return propostaID.String(), nil
+		}
+	}
+
+	// Se não achou nos logs, retorna sucesso mas sem ID (caso raro)
+	return "ID_DESCONHECIDO", nil
+}
+
+// AceitarPropostaTrocaBlockchain aceita uma proposta existente
+func AceitarPropostaTrocaBlockchain(propostaID string) error {
+	if !blockchainEnabled || chavePrivada == nil {
+		return fmt.Errorf("blockchain não habilitada")
+	}
+
+	propIDBig := new(big.Int)
+	propIDBig.SetString(propostaID, 10)
+
+	data, err := contractABI.Pack("aceitarPropostaTroca", propIDBig)
+	if err != nil {
+		return fmt.Errorf("erro ao empacotar: %v", err)
+	}
+
+	fmt.Println("[BLOCKCHAIN] Aceitando proposta de troca...")
+	tx, err := enviarTransacaoBlockchain(data, big.NewInt(0))
+	if err != nil {
+		return err
+	}
+
+	receipt, err := aguardarConfirmacaoBlockchain(tx.Hash())
+	if err != nil {
+		return err
+	}
+
+	if receipt.Status == 0 {
+		return fmt.Errorf("transação de aceite falhou")
+	}
+
+	return nil
+}
