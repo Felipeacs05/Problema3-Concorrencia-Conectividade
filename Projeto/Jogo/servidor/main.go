@@ -17,13 +17,16 @@ import (
 	"jogodistribuido/servidor/store"
 	"jogodistribuido/servidor/tipos"
 	"log"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -608,6 +611,16 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 		var dados map[string]string
 		json.Unmarshal(mensagem.Dados, &dados)
 		clienteID := dados["cliente_id"]
+		
+		// Armazena endereço da blockchain se fornecido
+		if enderecoBlockchain, ok := dados["endereco"]; ok && enderecoBlockchain != "" {
+			s.mutexClientes.Lock()
+			if cliente, existe := s.Clientes[clienteID]; existe {
+				cliente.EnderecoBlockchain = enderecoBlockchain
+				log.Printf("[BLOCKCHAIN] Endereço blockchain armazenado para jogador %s: %s", clienteID, enderecoBlockchain)
+			}
+			s.mutexClientes.Unlock()
+		}
 
 		// CORREÇÃO: Aplicar lógica Host/Shadow
 		sala.Mutex.Lock()
@@ -1264,9 +1277,35 @@ func (s *Servidor) processarCompraPacote(clienteID string, sala *tipos.Sala) {
 	cliente := s.Clientes[clienteID]
 	s.mutexClientes.RUnlock()
 
-	cliente.Mutex.Lock()
-	cliente.Inventario = append(cliente.Inventario, cartas...)
-	cliente.Mutex.Unlock()
+	// Se o cliente tem endereço blockchain, busca o inventário da blockchain em vez de usar cartas do estoque
+	if cliente != nil && cliente.EnderecoBlockchain != "" && s.BlockchainManager != nil {
+		log.Printf("[COMPRAR_BLOCKCHAIN] Cliente comprou via blockchain, buscando inventário da blockchain...")
+		addr := common.HexToAddress(cliente.EnderecoBlockchain)
+		cartasBlockchain, err := s.BlockchainManager.ObterInventario(addr)
+		if err == nil && len(cartasBlockchain) > 0 {
+			log.Printf("[COMPRAR_BLOCKCHAIN] Inventário da blockchain obtido: %d cartas", len(cartasBlockchain))
+			cliente.Mutex.Lock()
+			cliente.Inventario = cartasBlockchain
+			cliente.Mutex.Unlock()
+			// Usa as cartas da blockchain para notificar o cliente
+			cartas = cartasBlockchain
+		} else {
+			if err != nil {
+				log.Printf("[COMPRAR_BLOCKCHAIN_AVISO] Erro ao buscar inventário da blockchain: %v", err)
+			} else {
+				log.Printf("[COMPRAR_BLOCKCHAIN_AVISO] Inventário da blockchain vazio, usando cartas do estoque")
+			}
+			// Fallback: usa cartas do estoque se não conseguir buscar da blockchain
+			cliente.Mutex.Lock()
+			cliente.Inventario = append(cliente.Inventario, cartas...)
+			cliente.Mutex.Unlock()
+		}
+	} else {
+		// Cliente não tem blockchain, usa cartas do estoque normalmente
+		cliente.Mutex.Lock()
+		cliente.Inventario = append(cliente.Inventario, cartas...)
+		cliente.Mutex.Unlock()
+	}
 
 	// Notifica cliente
 	_, total := s.Store.GetStatusEstoque()
@@ -2584,7 +2623,116 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 		return
 	}
 
-	// EXECUTA A TROCA - Remove carta do ofertante e adiciona carta desejada
+	// ========== EXECUTA TROCA NA BLOCKCHAIN ==========
+	log.Printf("[TROCA_BLOCKCHAIN] Iniciando processo de troca na blockchain...")
+	log.Printf("[TROCA_BLOCKCHAIN] Carta oferecida: ID=%s, Nome=%s", req.IDCartaOferecida, cartaOferta.Nome)
+	log.Printf("[TROCA_BLOCKCHAIN] Carta desejada: ID=%s, Nome=%s", req.IDCartaDesejada, cartaDesejada.Nome)
+	
+	// Verifica se ambos os jogadores têm endereços blockchain
+	s.mutexClientes.RLock()
+	clienteOferta := s.Clientes[req.IDJogadorOferta]
+	clienteDesejado := s.Clientes[req.IDJogadorDesejado]
+	s.mutexClientes.RUnlock()
+	
+	// Se não encontrou no mapa global, busca na sala
+	if clienteOferta == nil {
+		sala.Mutex.Lock()
+		for _, j := range sala.Jogadores {
+			if j.ID == req.IDJogadorOferta {
+				// Busca no mapa de clientes usando o ID da sala
+				s.mutexClientes.RLock()
+				clienteOferta = s.Clientes[j.ID]
+				s.mutexClientes.RUnlock()
+				break
+			}
+		}
+		sala.Mutex.Unlock()
+	}
+	
+	if clienteDesejado == nil {
+		sala.Mutex.Lock()
+		for _, j := range sala.Jogadores {
+			if j.ID == req.IDJogadorDesejado {
+				s.mutexClientes.RLock()
+				clienteDesejado = s.Clientes[j.ID]
+				s.mutexClientes.RUnlock()
+				break
+			}
+		}
+		sala.Mutex.Unlock()
+	}
+	
+	// Executa troca na blockchain se ambos têm endereços e o blockchain manager está disponível
+	if s.BlockchainManager != nil && clienteOferta != nil && clienteDesejado != nil {
+		enderecoOferta := clienteOferta.EnderecoBlockchain
+		enderecoDesejado := clienteDesejado.EnderecoBlockchain
+		
+		log.Printf("[TROCA_BLOCKCHAIN] Endereço ofertante: %s", enderecoOferta)
+		log.Printf("[TROCA_BLOCKCHAIN] Endereço desejado: %s", enderecoDesejado)
+		
+		if enderecoOferta != "" && enderecoDesejado != "" {
+			// Converte IDs das cartas para tokenIds (big.Int)
+			// O ID da carta na blockchain é o tokenId convertido para string
+			// Verifica se os IDs são números válidos (cartas da blockchain têm IDs numéricos)
+			tokenIdOferta, err1 := strconv.ParseInt(cartaOferta.ID, 10, 64)
+			tokenIdDesejada, err2 := strconv.ParseInt(cartaDesejada.ID, 10, 64)
+			
+			log.Printf("[TROCA_BLOCKCHAIN] Tentando converter IDs: oferta='%s' (err=%v), desejada='%s' (err=%v)", 
+				cartaOferta.ID, err1, cartaDesejada.ID, err2)
+			
+			if err1 == nil && err2 == nil && tokenIdOferta >= 0 && tokenIdDesejada >= 0 {
+				log.Printf("[TROCA_BLOCKCHAIN] TokenIds: oferta=%d, desejada=%d", tokenIdOferta, tokenIdDesejada)
+				
+				// Converte endereços para common.Address
+				addrOferta := common.HexToAddress(enderecoOferta)
+				addrDesejado := common.HexToAddress(enderecoDesejado)
+				
+				// Executa a troca na blockchain
+				// Primeiro cria a proposta (jogador ofertante cria proposta)
+				propostaID, err := s.BlockchainManager.CriarPropostaTroca(
+					addrOferta,
+					addrDesejado,
+					big.NewInt(tokenIdOferta),
+					big.NewInt(tokenIdDesejada),
+				)
+				
+				if err != nil {
+					log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao criar proposta de troca: %v", err)
+					// Continua com a troca local mesmo se a blockchain falhar
+				} else {
+					log.Printf("[TROCA_BLOCKCHAIN] Proposta criada com ID: %s", propostaID.String())
+					
+					// Aceita a proposta (jogador desejado aceita)
+					err = s.BlockchainManager.AceitarPropostaTroca(addrDesejado, propostaID)
+					if err != nil {
+						log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao aceitar proposta de troca: %v", err)
+						// Continua com a troca local mesmo se a blockchain falhar
+					} else {
+						log.Printf("[TROCA_BLOCKCHAIN] ✓ Troca executada com sucesso na blockchain!")
+					}
+				}
+			} else {
+				log.Printf("[TROCA_BLOCKCHAIN_AVISO] Não foi possível converter IDs para tokenIds: err1=%v, err2=%v", err1, err2)
+				log.Printf("[TROCA_BLOCKCHAIN_AVISO] ID carta oferta: %s, ID carta desejada: %s", cartaOferta.ID, cartaDesejada.ID)
+			}
+		} else {
+			log.Printf("[TROCA_BLOCKCHAIN_AVISO] Um ou ambos os jogadores não têm endereço blockchain configurado")
+			log.Printf("[TROCA_BLOCKCHAIN_AVISO] Ofertante tem endereço: %v, Desejado tem endereço: %v", enderecoOferta != "", enderecoDesejado != "")
+		}
+	} else {
+		if s.BlockchainManager == nil {
+			log.Printf("[TROCA_BLOCKCHAIN_AVISO] BlockchainManager não está disponível")
+		}
+		if clienteOferta == nil {
+			log.Printf("[TROCA_BLOCKCHAIN_AVISO] Cliente ofertante não encontrado")
+		}
+		if clienteDesejado == nil {
+			log.Printf("[TROCA_BLOCKCHAIN_AVISO] Cliente desejado não encontrado")
+		}
+	}
+	// ========== FIM TROCA NA BLOCKCHAIN ==========
+
+	// EXECUTA A TROCA LOCAL - Remove carta do ofertante e adiciona carta desejada
 	var novoInventario []tipos.Carta
 
 	if jogadorReal != nil && idxOferta != 99 {
@@ -2725,12 +2873,12 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 
 	// Se o ofertante é local, também atualiza o inventário real
 	s.mutexClientes.RLock()
-	clienteOferta := s.Clientes[req.IDJogadorOferta]
+	clienteOfertaLocal := s.Clientes[req.IDJogadorOferta]
 	s.mutexClientes.RUnlock()
-	if clienteOferta != nil {
-		clienteOferta.Mutex.Lock()
-		clienteOferta.Inventario = novoInventario
-		clienteOferta.Mutex.Unlock()
+	if clienteOfertaLocal != nil {
+		clienteOfertaLocal.Mutex.Lock()
+		clienteOfertaLocal.Inventario = novoInventario
+		clienteOfertaLocal.Mutex.Unlock()
 		log.Printf("[TROCA] Inventário real do ofertante local atualizado para %d cartas", len(novoInventario))
 	}
 
@@ -2836,11 +2984,38 @@ func (s *Servidor) notificarSucessoTroca(clienteID, cartaPerdida, cartaGanha str
 }
 
 func (s *Servidor) notificarSucessoTrocaComInventario(clienteID, cartaPerdida, cartaGanha string, inventario []tipos.Carta) {
+	// Se o jogador tem endereço blockchain, busca o inventário atualizado da blockchain
+	s.mutexClientes.RLock()
+	cliente := s.Clientes[clienteID]
+	s.mutexClientes.RUnlock()
+	
+	inventarioFinal := inventario
+	
+	if cliente != nil && cliente.EnderecoBlockchain != "" && s.BlockchainManager != nil {
+		log.Printf("[TROCA_BLOCKCHAIN] Buscando inventário atualizado da blockchain para jogador %s", clienteID)
+		addr := common.HexToAddress(cliente.EnderecoBlockchain)
+		cartasBlockchain, err := s.BlockchainManager.ObterInventario(addr)
+		if err == nil && len(cartasBlockchain) > 0 {
+			log.Printf("[TROCA_BLOCKCHAIN] Inventário da blockchain obtido: %d cartas", len(cartasBlockchain))
+			inventarioFinal = cartasBlockchain
+			// Atualiza também o inventário local do cliente
+			cliente.Mutex.Lock()
+			cliente.Inventario = cartasBlockchain
+			cliente.Mutex.Unlock()
+		} else {
+			if err != nil {
+				log.Printf("[TROCA_BLOCKCHAIN_AVISO] Erro ao buscar inventário da blockchain: %v", err)
+			} else {
+				log.Printf("[TROCA_BLOCKCHAIN_AVISO] Inventário da blockchain vazio")
+			}
+		}
+	}
+	
 	msg := fmt.Sprintf("Troca realizada! Você deu '%s' e recebeu '%s'.", cartaPerdida, cartaGanha)
 	resp := protocolo.TrocarCartasResp{
 		Sucesso:              true,
 		Mensagem:             msg,
-		InventarioAtualizado: inventario,
+		InventarioAtualizado: inventarioFinal,
 	}
 	s.publicarParaCliente(clienteID, protocolo.Mensagem{Comando: "TROCA_CONCLUIDA", Dados: seguranca.MustJSON(resp)})
 }

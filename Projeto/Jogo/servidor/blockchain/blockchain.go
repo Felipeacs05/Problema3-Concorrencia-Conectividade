@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -174,12 +175,16 @@ func (m *Manager) ObterInventario(jogadorAddress common.Address) ([]tipos.Carta,
 		return nil, fmt.Errorf("erro ao desempacotar resultado: %v", err)
 	}
 
+	log.Printf("[BLOCKCHAIN_DEBUG] ObterInventario(%s) retornou %d IDs: %v", jogadorAddress.Hex(), len(ids), ids)
+
 	// Para cada ID, obtém os dados da carta
 	cartas := make([]tipos.Carta, 0, len(ids))
 	for _, id := range ids {
 		carta, err := m.ObterCarta(id)
 		if err == nil {
 			cartas = append(cartas, carta)
+		} else {
+			log.Printf("[BLOCKCHAIN_DEBUG] Erro ao obter carta %s: %v", id, err)
 		}
 	}
 
@@ -232,8 +237,8 @@ func (m *Manager) ObterCarta(cartaID *big.Int) (tipos.Carta, error) {
 
 // CriarPropostaTroca cria uma proposta de troca de cartas na blockchain
 func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, carta2 *big.Int) (*big.Int, error) {
-	// Prepara a chamada à função criarProposta
-	data, err := m.contractABI.Pack("criarProposta", jogador2, carta1, carta2)
+	// Prepara a chamada à função criarPropostaTroca
+	data, err := m.contractABI.Pack("criarPropostaTroca", jogador2, carta1, carta2)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao preparar chamada: %v", err)
 	}
@@ -254,15 +259,23 @@ func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, 
 		return nil, fmt.Errorf("transação falhou")
 	}
 
-	// Por enquanto, retorna um ID fictício
-	// Em uma implementação completa, leríamos o evento PropostaCriada
-	return big.NewInt(1), nil
+	// Lê o evento PropostaTrocaCriada para obter o ID
+	for _, vLog := range receipt.Logs {
+		if vLog.Address == m.contractAddress && len(vLog.Topics) >= 4 {
+			// O ID da proposta é o primeiro argumento indexado (Topic[1])
+			propostaID := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			log.Printf("[BLOCKCHAIN_DEBUG] Proposta criada detectada no log: %s", propostaID.String())
+			return propostaID, nil
+		}
+	}
+
+	return nil, fmt.Errorf("id da proposta não encontrado nos logs")
 }
 
 // AceitarPropostaTroca aceita uma proposta de troca
 func (m *Manager) AceitarPropostaTroca(jogador2 common.Address, propostaID *big.Int) error {
-	// Prepara a chamada à função aceitarProposta
-	data, err := m.contractABI.Pack("aceitarProposta", propostaID)
+	// Prepara a chamada à função aceitarPropostaTroca
+	data, err := m.contractABI.Pack("aceitarPropostaTroca", propostaID)
 	if err != nil {
 		return fmt.Errorf("erro ao preparar chamada: %v", err)
 	}

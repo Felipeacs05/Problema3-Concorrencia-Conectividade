@@ -303,7 +303,13 @@ func obterInventarioBlockchain() ([]protocolo.Carta, error) {
 	var ids []*big.Int
 	err = contractABI.UnpackIntoInterface(&ids, "obterInventario", result)
 	if err != nil {
+		fmt.Printf("[DEBUG] Erro ao desempacotar IDs: %v\n", err)
 		return nil, fmt.Errorf("erro ao desempacotar: %v", err)
+	}
+
+	fmt.Printf("[DEBUG] IDs encontrados na blockchain: %d\n", len(ids))
+	if len(ids) > 0 {
+		fmt.Printf("[DEBUG] Lista de IDs: %v\n", ids)
 	}
 
 	// Para cada ID, obtém a carta
@@ -312,6 +318,9 @@ func obterInventarioBlockchain() ([]protocolo.Carta, error) {
 		carta, err := obterCartaBlockchain(id)
 		if err == nil {
 			cartas = append(cartas, carta)
+			fmt.Printf("[DEBUG] Carta carregada: %s (ID: %s)\n", carta.Nome, carta.ID)
+		} else {
+			fmt.Printf("[DEBUG] Erro ao carregar carta ID %s: %v\n", id, err)
 		}
 	}
 

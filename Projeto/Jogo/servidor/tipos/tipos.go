@@ -17,11 +17,12 @@ type InfoServidor struct {
 
 // Cliente representa um jogador conectado via MQTT
 type Cliente struct {
-	ID         string
-	Nome       string
-	Inventario []protocolo.Carta
-	Sala       *Sala
-	Mutex      sync.Mutex
+	ID                string
+	Nome              string
+	Inventario        []protocolo.Carta
+	Sala              *Sala
+	EnderecoBlockchain string // Endereço da carteira blockchain do jogador
+	Mutex             sync.Mutex
 }
 
 // Sala representa uma partida entre dois jogadores (possivelmente de servidores diferentes)
