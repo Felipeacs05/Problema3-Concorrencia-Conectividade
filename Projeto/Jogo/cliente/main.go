@@ -338,17 +338,48 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 	case "PACOTE_RESULTADO":
 		var dados protocolo.ComprarPacoteResp
 		json.Unmarshal(msg.Dados, &dados)
-		meuInventario = dados.Cartas
-
-		fmt.Printf("\n╔═══════════════════════════════════════╗\n")
-		fmt.Printf("║   PACOTE RECEBIDO!                    ║\n")
-		fmt.Printf("║   Você recebeu %d cartas              ║\n", len(dados.Cartas))
-		fmt.Printf("╚═══════════════════════════════════════╝\n")
-
-		fmt.Println("\nSuas cartas:")
-		for i, carta := range dados.Cartas {
-			fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
-				i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
+		
+		// Se blockchain está habilitada, usa dados da blockchain (fonte da verdade)
+		// Não sobrescreve com dados do servidor que podem estar desatualizados
+		if blockchainEnabled && chavePrivada != nil {
+			// Busca inventário atualizado da blockchain
+			cartasBlockchain, err := obterInventarioBlockchain()
+			if err == nil && len(cartasBlockchain) > 0 {
+				meuInventario = cartasBlockchain
+				fmt.Printf("\n╔═══════════════════════════════════════╗\n")
+				fmt.Printf("║   PACOTE RECEBIDO! (Blockchain)       ║\n")
+				fmt.Printf("║   Você recebeu %d cartas              ║\n", len(cartasBlockchain))
+				fmt.Printf("╚═══════════════════════════════════════╝\n")
+				fmt.Println("\nSuas cartas (da blockchain):")
+				for i, carta := range cartasBlockchain {
+					fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
+						i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
+				}
+			} else {
+				// Fallback: usa dados do servidor se blockchain falhar
+				meuInventario = dados.Cartas
+				fmt.Printf("\n╔═══════════════════════════════════════╗\n")
+				fmt.Printf("║   PACOTE RECEBIDO!                    ║\n")
+				fmt.Printf("║   Você recebeu %d cartas              ║\n", len(dados.Cartas))
+				fmt.Printf("╚═══════════════════════════════════════╝\n")
+				fmt.Println("\nSuas cartas:")
+				for i, carta := range dados.Cartas {
+					fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
+						i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
+				}
+			}
+		} else {
+			// Sem blockchain, usa dados do servidor
+			meuInventario = dados.Cartas
+			fmt.Printf("\n╔═══════════════════════════════════════╗\n")
+			fmt.Printf("║   PACOTE RECEBIDO!                    ║\n")
+			fmt.Printf("║   Você recebeu %d cartas              ║\n", len(dados.Cartas))
+			fmt.Printf("╚═══════════════════════════════════════╝\n")
+			fmt.Println("\nSuas cartas:")
+			for i, carta := range dados.Cartas {
+				fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
+					i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
+			}
 		}
 		fmt.Print("> ")
 
