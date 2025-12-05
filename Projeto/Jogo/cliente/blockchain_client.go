@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	"reflect"
 	"strings"
 	"time"
 
@@ -505,11 +506,245 @@ func CriarPropostaTrocaBlockchain(oponenteAddressHex string, minhaCartaID string
 	return "ID_DESCONHECIDO", nil
 }
 
+// PropostaTrocaStruct representa a estrutura de uma proposta de troca
+type PropostaTrocaStruct struct {
+	Jogador1      common.Address
+	Jogador2      common.Address
+	CartaJogador1 *big.Int
+	CartaJogador2 *big.Int
+	Aceita        bool
+	Executada     bool
+	Timestamp     *big.Int
+}
+
+// obterPropostaTrocaBlockchain consulta uma proposta de troca
+func obterPropostaTrocaBlockchain(propostaID string) (*PropostaTrocaStruct, error) {
+	if !blockchainEnabled {
+		return nil, fmt.Errorf("blockchain não habilitada")
+	}
+
+	propIDBig := new(big.Int)
+	propIDBig.SetString(propostaID, 10)
+
+	// Prepara chamada
+	data, err := contractABI.Pack("obterPropostaTroca", propIDBig)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao preparar chamada: %v", err)
+	}
+
+	// Faz chamada
+	msg := ethereum.CallMsg{
+		To:   &contractAddress,
+		Data: data,
+	}
+
+	result, err := blockchainClient.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao chamar contrato: %v", err)
+	}
+
+	// Desempacota resultado manualmente
+	// Quando Solidity retorna um struct, ele vem como uma tupla
+	values, err := contractABI.Unpack("obterPropostaTroca", result)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao desempacotar: %v", err)
+	}
+
+	fmt.Printf("[DEBUG] Valores desempacotados: %d elementos, tipo: %T\n", len(values), values)
+
+	var proposta PropostaTrocaStruct
+
+	// O struct Solidity vem como uma tupla aninhada (values[0] é o struct)
+	if len(values) == 1 {
+		// Usa reflection para extrair os campos do struct anônimo
+		v := reflect.ValueOf(values[0])
+		if v.Kind() == reflect.Struct {
+			// Extrai cada campo pelo índice
+			if v.NumField() >= 7 {
+				// Campo 0: Jogador1 (address)
+				if f := v.Field(0); f.CanInterface() {
+					if addr, ok := f.Interface().(common.Address); ok {
+						proposta.Jogador1 = addr
+					}
+				}
+				// Campo 1: Jogador2 (address)
+				if f := v.Field(1); f.CanInterface() {
+					if addr, ok := f.Interface().(common.Address); ok {
+						proposta.Jogador2 = addr
+					}
+				}
+				// Campo 2: CartaJogador1 (uint256)
+				if f := v.Field(2); f.CanInterface() {
+					if val, ok := f.Interface().(*big.Int); ok {
+						proposta.CartaJogador1 = val
+					}
+				}
+				// Campo 3: CartaJogador2 (uint256)
+				if f := v.Field(3); f.CanInterface() {
+					if val, ok := f.Interface().(*big.Int); ok {
+						proposta.CartaJogador2 = val
+					}
+				}
+				// Campo 4: Aceita (bool)
+				if f := v.Field(4); f.CanInterface() {
+					if val, ok := f.Interface().(bool); ok {
+						proposta.Aceita = val
+					}
+				}
+				// Campo 5: Executada (bool)
+				if f := v.Field(5); f.CanInterface() {
+					if val, ok := f.Interface().(bool); ok {
+						proposta.Executada = val
+					}
+				}
+				// Campo 6: Timestamp (uint256)
+				if f := v.Field(6); f.CanInterface() {
+					if val, ok := f.Interface().(*big.Int); ok {
+						proposta.Timestamp = val
+					}
+				}
+			} else {
+				return nil, fmt.Errorf("struct tem menos campos que o esperado: %d", v.NumField())
+			}
+		} else {
+			return nil, fmt.Errorf("tipo inesperado para proposta: %T (kind: %v)", values[0], v.Kind())
+		}
+	} else if len(values) >= 7 {
+		// Valores vieram separados
+		if addr, ok := values[0].(common.Address); ok {
+			proposta.Jogador1 = addr
+		}
+		if addr, ok := values[1].(common.Address); ok {
+			proposta.Jogador2 = addr
+		}
+		if val, ok := values[2].(*big.Int); ok {
+			proposta.CartaJogador1 = val
+		}
+		if val, ok := values[3].(*big.Int); ok {
+			proposta.CartaJogador2 = val
+		}
+		if val, ok := values[4].(bool); ok {
+			proposta.Aceita = val
+		}
+		if val, ok := values[5].(bool); ok {
+			proposta.Executada = val
+		}
+		if val, ok := values[6].(*big.Int); ok {
+			proposta.Timestamp = val
+		}
+	} else {
+		return nil, fmt.Errorf("resposta incompleta: esperado 1 ou 7 campos, recebido %d", len(values))
+	}
+
+	return &proposta, nil
+}
+
+// obterProprietarioCartaBlockchain consulta o proprietário de uma carta
+func obterProprietarioCartaBlockchain(cartaID *big.Int) (common.Address, error) {
+	if !blockchainEnabled {
+		return common.Address{}, fmt.Errorf("blockchain não habilitada")
+	}
+
+	// Prepara chamada ao mapeamento público 'proprietario'
+	data, err := contractABI.Pack("proprietario", cartaID)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("erro ao preparar chamada: %v", err)
+	}
+
+	// Faz chamada
+	msg := ethereum.CallMsg{
+		To:   &contractAddress,
+		Data: data,
+	}
+
+	result, err := blockchainClient.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("erro ao chamar contrato: %v", err)
+	}
+
+	// Desempacota resultado (address) - mapeamento público retorna diretamente
+	values, err := contractABI.Unpack("proprietario", result)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("erro ao desempacotar: %v", err)
+	}
+
+	if len(values) == 0 {
+		return common.Address{}, fmt.Errorf("resposta vazia")
+	}
+
+	// O mapeamento público retorna o valor diretamente
+	if addr, ok := values[0].(common.Address); ok {
+		return addr, nil
+	}
+
+	return common.Address{}, fmt.Errorf("tipo inesperado: %T", values[0])
+}
+
 // AceitarPropostaTrocaBlockchain aceita uma proposta existente
 func AceitarPropostaTrocaBlockchain(propostaID string) error {
 	if !blockchainEnabled || chavePrivada == nil {
 		return fmt.Errorf("blockchain não habilitada")
 	}
+
+	// CORREÇÃO: Verifica a proposta antes de tentar aceitar
+	fmt.Printf("[DEBUG] Consultando proposta ID: %s\n", propostaID)
+	proposta, err := obterPropostaTrocaBlockchain(propostaID)
+	if err != nil {
+		return fmt.Errorf("erro ao consultar proposta: %v", err)
+	}
+
+	// Verifica se a proposta existe (jogador1 não pode ser address(0))
+	if proposta.Jogador1 == (common.Address{}) || proposta.Timestamp == nil || proposta.Timestamp.Cmp(big.NewInt(0)) == 0 {
+		return fmt.Errorf("proposta não existe ou é inválida (ID: %s)", propostaID)
+	}
+
+	// Verifica se o jogador atual é o destinatário
+	if proposta.Jogador2 != contaBlockchain {
+		return fmt.Errorf("você não é o destinatário desta proposta. Destinatário esperado: %s, seu endereço: %s",
+			proposta.Jogador2.Hex(), contaBlockchain.Hex())
+	}
+
+	// Verifica se já foi executada
+	if proposta.Executada {
+		return fmt.Errorf("proposta já foi executada")
+	}
+
+	fmt.Printf("[DEBUG] Proposta válida encontrada:\n")
+	fmt.Printf("  Jogador1: %s\n", proposta.Jogador1.Hex())
+	fmt.Printf("  Jogador2: %s\n", proposta.Jogador2.Hex())
+	if proposta.CartaJogador1 != nil {
+		fmt.Printf("  Carta Jogador1: %s\n", proposta.CartaJogador1.String())
+	}
+	if proposta.CartaJogador2 != nil {
+		fmt.Printf("  Carta Jogador2: %s\n", proposta.CartaJogador2.String())
+	}
+
+	// DEBUG: Verifica proprietários das cartas ANTES de aceitar
+	fmt.Printf("[DEBUG] Verificando proprietários das cartas...\n")
+	if proposta.CartaJogador1 != nil {
+		proprietarioCarta1, err := obterProprietarioCartaBlockchain(proposta.CartaJogador1)
+		if err != nil {
+			fmt.Printf("[DEBUG] ERRO ao verificar proprietário da carta %s: %v\n", proposta.CartaJogador1.String(), err)
+		} else {
+			fmt.Printf("[DEBUG] Proprietário da carta %s (Jogador1): %s\n", proposta.CartaJogador1.String(), proprietarioCarta1.Hex())
+			if proprietarioCarta1 != proposta.Jogador1 {
+				return fmt.Errorf("Jogador1 não possui mais a carta %s. Proprietário atual: %s", proposta.CartaJogador1.String(), proprietarioCarta1.Hex())
+			}
+		}
+	}
+	if proposta.CartaJogador2 != nil {
+		proprietarioCarta2, err := obterProprietarioCartaBlockchain(proposta.CartaJogador2)
+		if err != nil {
+			fmt.Printf("[DEBUG] ERRO ao verificar proprietário da carta %s: %v\n", proposta.CartaJogador2.String(), err)
+		} else {
+			fmt.Printf("[DEBUG] Proprietário da carta %s (Jogador2): %s\n", proposta.CartaJogador2.String(), proprietarioCarta2.Hex())
+			if proprietarioCarta2 != proposta.Jogador2 {
+				return fmt.Errorf("Você não possui mais a carta %s. Proprietário atual: %s", proposta.CartaJogador2.String(), proprietarioCarta2.Hex())
+			}
+		}
+	}
+
+	fmt.Printf("[DEBUG] Todas as validações passaram. Preparando transação...\n")
 
 	propIDBig := new(big.Int)
 	propIDBig.SetString(propostaID, 10)
@@ -525,14 +760,51 @@ func AceitarPropostaTrocaBlockchain(propostaID string) error {
 		return err
 	}
 
+	fmt.Printf("[DEBUG] Aguardando confirmação da transação %s...\n", tx.Hash().Hex())
 	receipt, err := aguardarConfirmacaoBlockchain(tx.Hash())
 	if err != nil {
-		return err
+		return fmt.Errorf("erro ao aguardar confirmação: %v", err)
 	}
+
+	fmt.Printf("[DEBUG] Receipt recebido: Status=%d, BlockNumber=%d, GasUsed=%d\n", receipt.Status, receipt.BlockNumber.Uint64(), receipt.GasUsed)
 
 	if receipt.Status == 0 {
-		return fmt.Errorf("transação de aceite falhou")
+		// Transação foi revertida - tenta obter mais informações
+		fmt.Printf("[DEBUG] Transação revertida. Analisando logs...\n")
+		fmt.Printf("[DEBUG] Número de logs: %d\n", len(receipt.Logs))
+
+		// Verifica novamente o estado das cartas após a falha
+		fmt.Printf("[DEBUG] Verificando estado das cartas após a falha...\n")
+		if proposta.CartaJogador1 != nil {
+			proprietarioCarta1, err := obterProprietarioCartaBlockchain(proposta.CartaJogador1)
+			if err == nil {
+				fmt.Printf("[DEBUG] Após falha - Proprietário da carta %s: %s (esperado: %s)\n",
+					proposta.CartaJogador1.String(), proprietarioCarta1.Hex(), proposta.Jogador1.Hex())
+			}
+		}
+		if proposta.CartaJogador2 != nil {
+			proprietarioCarta2, err := obterProprietarioCartaBlockchain(proposta.CartaJogador2)
+			if err == nil {
+				fmt.Printf("[DEBUG] Após falha - Proprietário da carta %s: %s (esperado: %s)\n",
+					proposta.CartaJogador2.String(), proprietarioCarta2.Hex(), proposta.Jogador2.Hex())
+			}
+		}
+
+		// Verifica novamente a proposta
+		fmt.Printf("[DEBUG] Verificando estado da proposta após a falha...\n")
+		propostaAposFalha, err := obterPropostaTrocaBlockchain(propostaID)
+		if err == nil {
+			fmt.Printf("[DEBUG] Proposta após falha - Executada: %v, Aceita: %v\n", propostaAposFalha.Executada, propostaAposFalha.Aceita)
+		}
+
+		return fmt.Errorf("transação de aceite falhou (Status=0). Possíveis causas:\n" +
+			"  - Você não é o destinatário da proposta\n" +
+			"  - A proposta já foi executada\n" +
+			"  - Um dos jogadores não possui mais a carta\n" +
+			"  - A proposta não existe\n" +
+			"  - Erro interno no contrato (verifique se o contrato foi recompilado e reimplantado)")
 	}
 
+	fmt.Printf("[DEBUG] Transação confirmada com sucesso!\n")
 	return nil
 }

@@ -426,6 +426,9 @@ contract GameEconomy {
     function aceitarPropostaTroca(uint256 propostaId) public {
         PropostaTroca storage proposta = propostasTroca[propostaId];
         
+        // CORREÇÃO: Verifica se a proposta existe (jogador1 não pode ser address(0) e timestamp deve ser > 0)
+        require(proposta.jogador1 != address(0), "Proposta nao existe");
+        require(proposta.timestamp > 0, "Proposta invalida");
         require(proposta.jogador2 == msg.sender, "Voce nao e o destinatario desta proposta");
         require(!proposta.executada, "Proposta ja foi executada");
         require(proprietario[proposta.cartaJogador1] == proposta.jogador1, "Jogador1 nao possui mais esta carta");
@@ -435,8 +438,10 @@ contract GameEconomy {
         proposta.executada = true;
         
         // BAREMA ITEM 8: TROCAS - Executa troca atômica: ambas as cartas são transferidas simultaneamente
-        transferirCarta(proposta.jogador2, proposta.cartaJogador1);
-        transferirCarta(proposta.jogador1, proposta.cartaJogador2);
+        // CORREÇÃO: Usa função interna que não verifica se msg.sender possui a carta
+        // porque na troca, o jogador2 aceita mas precisa transferir a carta do jogador1
+        _transferirCartaInterno(proposta.jogador1, proposta.jogador2, proposta.cartaJogador1);
+        _transferirCartaInterno(proposta.jogador2, proposta.jogador1, proposta.cartaJogador2);
         
         emit TrocaExecutada(
             propostaId,

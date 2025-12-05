@@ -868,7 +868,7 @@ func iniciarProcessoDeTroca() {
 	mostrarCartas()
 
 	// 1. Obter dados da troca
-	fmt.Print("Digite o ID da carta que você quer OFERECER: ")
+	fmt.Print("Digite o ID da carta que você quer teuaasas OFERECER: ")
 	scanner.Scan()
 	cartaOferecidaID := strings.TrimSpace(scanner.Text())
 
