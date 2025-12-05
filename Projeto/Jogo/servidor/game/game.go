@@ -94,6 +94,8 @@ func (m *Manager) CriarSala(j1, j2 *tipos.Cliente) {
 		ServidorHost:   j1.ID,
 		ServidorSombra: j2.ID,
 		Mutex:          sync.Mutex{},
+		CartasJogadas:  make(map[string]tipos.Carta),
+		TurnoDe:        "",
 	}
 
 	// Add room to server (this would need to be handled by the main server)
@@ -195,12 +197,23 @@ func (m *Manager) VerificarEIniciarPartidaSeProntos(sala *tipos.Sala) {
 func (m *Manager) IniciarPartida(sala *tipos.Sala) {
 	sala.Mutex.Lock()
 	sala.Estado = "EM_JOGO"
+	// Define o primeiro jogador como o dono do turno inicial
+	if len(sala.Jogadores) > 0 {
+		sala.TurnoDe = sala.Jogadores[0].ID
+	}
+	// Inicializa estruturas de jogo se necessário
+	if sala.CartasJogadas == nil {
+		sala.CartasJogadas = make(map[string]tipos.Carta)
+	}
 	sala.Mutex.Unlock()
 
 	// Notify both players
 	msg := protocolo.Mensagem{
 		Comando: "PARTIDA_INICIADA",
-		Dados:   seguranca.MustJSON(map[string]string{"sala_id": sala.ID}),
+		Dados: seguranca.MustJSON(map[string]string{
+			"sala_id":  sala.ID,
+			"turno_de": sala.TurnoDe,
+		}),
 	}
 
 	for _, jogador := range sala.Jogadores {
@@ -244,4 +257,200 @@ func (m *Manager) notificarSombra(sala *tipos.Sala, msg protocolo.Mensagem) {
 func (m *Manager) notificarHost(sala *tipos.Sala, msg protocolo.Mensagem) {
 	// Implementation would send HTTP request to host server
 	log.Printf("Notificando servidor host para sala %s", sala.ID)
+}
+
+// ProcessarJogada trata a lógica de um jogador jogar uma carta
+func (m *Manager) ProcessarJogada(salaID, clienteID, cartaID string) {
+	log.Printf("[GAME_DEBUG] === ProcessarJogada INICIADO ===")
+	log.Printf("[GAME_DEBUG] salaID=%s, clienteID=%s, cartaID=%s", salaID, clienteID, cartaID)
+
+	salas := m.gameInterface.GetSalas()
+	sala, exists := salas[salaID]
+	if !exists {
+		log.Printf("[GAME_DEBUG] ERRO: Sala %s não encontrada", salaID)
+		return
+	}
+
+	sala.Mutex.Lock()
+	log.Printf("[GAME_DEBUG] Lock adquirido para sala %s", salaID)
+	log.Printf("[GAME_DEBUG] Estado atual da sala: Estado=%s, TurnoDe=%s, CartasJogadas=%d", sala.Estado, sala.TurnoDe, len(sala.CartasJogadas))
+	defer func() {
+		sala.Mutex.Unlock()
+		log.Printf("[GAME_DEBUG] Lock liberado para sala %s", salaID)
+	}()
+
+	// 1. Validações básicas
+	if sala.Estado != "EM_JOGO" {
+		log.Printf("[GAME_DEBUG] ERRO: Tentativa de jogada em sala fora de jogo (%s)", sala.Estado)
+		return
+	}
+	if sala.TurnoDe != clienteID {
+		log.Printf("[GAME_DEBUG] ERRO: Jogador %s tentou jogar fora de turno (TurnoDe=%s)", clienteID, sala.TurnoDe)
+		return
+	}
+	if _, jaJogou := sala.CartasJogadas[clienteID]; jaJogou {
+		log.Printf("[GAME_DEBUG] ERRO: Jogador %s já jogou neste turno", clienteID)
+		return
+	}
+
+	// 2. Encontrar e remover a carta do inventário do jogador
+	clientes := m.gameInterface.GetClientes()
+	cliente := clientes[clienteID]
+	var cartaJogada tipos.Carta
+	cartaEncontrada := false
+
+	cliente.Mutex.Lock()
+	for i, c := range cliente.Inventario {
+		if c.ID == cartaID {
+			cartaJogada = c
+			// Remove do slice
+			cliente.Inventario = append(cliente.Inventario[:i], cliente.Inventario[i+1:]...)
+			cartaEncontrada = true
+			break
+		}
+	}
+	cliente.Mutex.Unlock()
+
+	if !cartaEncontrada {
+		log.Printf("[GAME_DEBUG] ERRO: Carta %s não encontrada no inventário de %s", cartaID, clienteID)
+		return
+	}
+
+	// 3. Atualizar Estado da Sala
+	sala.CartasJogadas[clienteID] = cartaJogada
+	log.Printf("[GAME_DEBUG] JOGADA: %s jogou %s na sala %s", cliente.Nome, cartaJogada.Nome, sala.ID)
+	log.Printf("[GAME_DEBUG] Total de cartas jogadas agora: %d", len(sala.CartasJogadas))
+
+	// 4. Verificar se o turno acabou ou passa a vez
+	if len(sala.CartasJogadas) >= 2 {
+		log.Printf("[GAME_DEBUG] Ambos jogaram! Chamando ResolverTurno")
+		// Ambos jogaram: Resolver o combate
+		m.ResolverTurno(sala)
+	} else {
+		log.Printf("[GAME_DEBUG] Apenas um jogou. Mudando turno...")
+		// Passar a vez para o oponente
+		turnoAnterior := sala.TurnoDe
+		for _, jog := range sala.Jogadores {
+			if jog.ID != clienteID {
+				sala.TurnoDe = jog.ID
+				log.Printf("[GAME_DEBUG] TURNO MUDADO: %s -> %s (jogador: %s)", turnoAnterior, sala.TurnoDe, jog.Nome)
+				break
+			}
+		}
+		log.Printf("[GAME_DEBUG] Chamando NotificarAtualizacaoJogo com TurnoDe=%s", sala.TurnoDe)
+		// Notificar atualização para ambos verem a carta na mesa
+		m.NotificarAtualizacaoJogo(sala)
+		log.Printf("[GAME_DEBUG] NotificarAtualizacaoJogo retornou")
+	}
+	log.Printf("[GAME_DEBUG] === ProcessarJogada FINALIZADO ===")
+}
+
+func (m *Manager) ResolverTurno(sala *tipos.Sala) {
+	// Lógica simples de combate (exemplo: maior atributo vence)
+	// Adapte conforme as regras do seu PBL (Elemento, Força, etc)
+
+	var j1, j2 *tipos.Cliente
+	j1 = sala.Jogadores[0]
+	j2 = sala.Jogadores[1]
+
+	c1 := sala.CartasJogadas[j1.ID]
+	c2 := sala.CartasJogadas[j2.ID]
+
+	vencedorTurno := ""
+
+	// Comparação baseada no Valor da carta
+	poder1 := c1.Valor
+	poder2 := c2.Valor
+
+	// Mapa de força dos naipes para desempate: Espadas > Copas > Ouros > Paus
+	naipes := map[string]int{"♠": 4, "♥": 3, "♦": 2, "♣": 1}
+
+	if poder1 > poder2 {
+		vencedorTurno = j1.ID
+	} else if poder2 > poder1 {
+		vencedorTurno = j2.ID
+	} else {
+		// Empate no valor: decide pelo naipe
+		if naipes[c1.Naipe] > naipes[c2.Naipe] {
+			vencedorTurno = j1.ID
+		} else {
+			vencedorTurno = j2.ID
+		}
+	}
+
+	// Limpar mesa para o próximo turno
+	sala.CartasJogadas = make(map[string]tipos.Carta)
+
+	// Notificar Resultado do Turno
+	msg := protocolo.Mensagem{
+		Comando: "RESULTADO_TURNO",
+		Dados: seguranca.MustJSON(map[string]interface{}{
+			"vencedor_turno": vencedorTurno,
+			"carta_j1":       c1,
+			"carta_j2":       c2,
+		}),
+	}
+	m.gameInterface.PublicarEventoPartida(sala.ID, msg)
+
+	// VERIFICAR FIM DE JOGO
+	// Se alguém perdeu toda a vida ou cartas acabaram
+	fimDeJogo := false
+	vencedorPartida := ""
+	// ... Implemente sua lógica de fim de jogo aqui ...
+
+	if fimDeJogo {
+		sala.Estado = "FINALIZADO"
+		m.FinalizarPartidaBlockchain(sala, vencedorPartida, c1, c2) // Função para chamar a blockchain
+	} else {
+		// Se não acabou, notifica atualização e segue o jogo
+		m.NotificarAtualizacaoJogo(sala)
+	}
+}
+
+func (m *Manager) NotificarAtualizacaoJogo(sala *tipos.Sala) {
+	log.Printf("[NOTIFICACAO_DEBUG] === NotificarAtualizacaoJogo INICIADO ===")
+	log.Printf("[NOTIFICACAO_DEBUG] salaID=%s, TurnoDe=%s", sala.ID, sala.TurnoDe)
+	log.Printf("[NOTIFICACAO_DEBUG] CartasJogadas: %d cartas", len(sala.CartasJogadas))
+
+	// CORREÇÃO CRÍTICA: Usar a estrutura do protocolo corretamente
+	// O protocolo espera "turnoDe" (camelCase), não "turno_de"
+	dados := protocolo.DadosAtualizacaoJogo{
+		TurnoDe:      sala.TurnoDe,
+		UltimaJogada: sala.CartasJogadas,
+		NumeroRodada: sala.NumeroRodada,
+		// Outros campos podem ser preenchidos conforme necessário
+	}
+
+	log.Printf("[NOTIFICACAO_DEBUG] Dados montados usando protocolo.DadosAtualizacaoJogo")
+	log.Printf("[NOTIFICACAO_DEBUG]   - TurnoDe='%s'", dados.TurnoDe)
+	log.Printf("[NOTIFICACAO_DEBUG]   - NumeroRodada=%d", dados.NumeroRodada)
+	log.Printf("[NOTIFICACAO_DEBUG]   - UltimaJogada=%d cartas", len(dados.UltimaJogada))
+
+	msg := protocolo.Mensagem{
+		Comando: "ATUALIZACAO_JOGO",
+		Dados:   seguranca.MustJSON(dados),
+	}
+
+	log.Printf("[NOTIFICACAO_DEBUG] Mensagem criada. Comando=%s", msg.Comando)
+	log.Printf("[NOTIFICACAO_DEBUG] Dados JSON: %s", string(msg.Dados))
+	log.Printf("[NOTIFICACAO_DEBUG] Chamando PublicarEventoPartida para sala %s", sala.ID)
+
+	m.gameInterface.PublicarEventoPartida(sala.ID, msg)
+
+	log.Printf("[NOTIFICACAO_DEBUG] PublicarEventoPartida retornou")
+	log.Printf("[NOTIFICACAO_DEBUG] === NotificarAtualizacaoJogo FINALIZADO ===")
+}
+
+// Apenas um esqueleto para a chamada da blockchain que você pediu
+func (m *Manager) FinalizarPartidaBlockchain(sala *tipos.Sala, vencedorID string, ultimasCartas ...tipos.Carta) {
+	log.Printf("!!! PARTIDA FINALIZADA - INICIANDO REGISTRO NA BLOCKCHAIN !!!")
+
+	// Aqui você chama seu módulo de blockchain
+	// go m.gameInterface.GetBlockchain().RegistrarVitoria(vencedorID, ...)
+
+	msg := protocolo.Mensagem{
+		Comando: "FIM_DE_JOGO",
+		Dados:   seguranca.MustJSON(map[string]string{"vencedor": vencedorID}),
+	}
+	m.gameInterface.PublicarEventoPartida(sala.ID, msg)
 }

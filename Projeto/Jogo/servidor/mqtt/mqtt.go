@@ -54,6 +54,7 @@ type MQTTGameManagerInterface interface {
 	VerificarEIniciarPartidaSeProntos(*tipos.Sala)
 	IniciarPartida(*tipos.Sala)
 	BroadcastChat(*tipos.Sala, string, string)
+	ProcessarJogada(string, string, string)
 }
 
 // Manager handles all MQTT-related logic
@@ -219,6 +220,35 @@ func (m *Manager) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 		}
 		m.mqttInterface.GetGameManager().BroadcastChat(sala, dados.Texto, cliente.Nome)
 
+	case "JOGAR_CARTA":
+		log.Printf("[MQTT_CMD_DEBUG] === JOGAR_CARTA recebido ===")
+		log.Printf("[MQTT_CMD_DEBUG] salaID=%s", salaID)
+		log.Printf("[MQTT_CMD_DEBUG] Dados brutos: %s", string(comando.Dados))
+
+		// O cliente envia um map com cliente_id e carta_id
+		var dados map[string]interface{}
+		if err := json.Unmarshal(comando.Dados, &dados); err != nil {
+			log.Printf("[MQTT_CMD_DEBUG] ERRO ao decodificar dados de jogar carta: %v", err)
+			return
+		}
+
+		clienteID, ok1 := dados["cliente_id"].(string)
+		cartaID, ok2 := dados["carta_id"].(string)
+		if !ok1 || !ok2 {
+			log.Printf("[MQTT_CMD_DEBUG] ERRO: cliente_id ou carta_id inválidos na mensagem JOGAR_CARTA")
+			log.Printf("[MQTT_CMD_DEBUG] cliente_id ok=%v, carta_id ok=%v", ok1, ok2)
+			return
+		}
+
+		log.Printf("[MQTT_CMD_DEBUG] Extraído: clienteID='%s', cartaID='%s'", clienteID, cartaID)
+		log.Printf("[MQTT_CMD_DEBUG] Chamando ProcessarJogada...")
+
+		// Chama a lógica do jogo
+		m.mqttInterface.GetGameManager().ProcessarJogada(salaID, clienteID, cartaID)
+
+		log.Printf("[MQTT_CMD_DEBUG] ProcessarJogada retornou")
+		log.Printf("[MQTT_CMD_DEBUG] === JOGAR_CARTA processado ===")
+
 	default:
 		log.Printf("Comando não reconhecido: %s", comando.Comando)
 	}
@@ -233,7 +263,27 @@ func (m *Manager) PublicarParaCliente(clienteID string, msg protocolo.Mensagem) 
 
 // PublicarEventoPartida publishes a message to a game room
 func (m *Manager) PublicarEventoPartida(salaID string, msg protocolo.Mensagem) {
+	log.Printf("[MQTT_PUB_DEBUG] === PublicarEventoPartida INICIADO ===")
+	log.Printf("[MQTT_PUB_DEBUG] salaID=%s, Comando=%s", salaID, msg.Comando)
+
 	payload, _ := json.Marshal(msg)
 	topico := fmt.Sprintf("partidas/%s/eventos", salaID)
-	m.mqttInterface.GetMQTTClient().Publish(topico, 0, false, payload)
+
+	log.Printf("[MQTT_PUB_DEBUG] Tópico: %s", topico)
+	log.Printf("[MQTT_PUB_DEBUG] Payload (primeiros 200 chars): %s", string(payload)[:min(200, len(string(payload)))])
+
+	token := m.mqttInterface.GetMQTTClient().Publish(topico, 0, false, payload)
+	if token.Wait() && token.Error() != nil {
+		log.Printf("[MQTT_PUB_DEBUG] ERRO ao publicar: %v", token.Error())
+	} else {
+		log.Printf("[MQTT_PUB_DEBUG] Mensagem publicada com sucesso no tópico %s", topico)
+	}
+	log.Printf("[MQTT_PUB_DEBUG] === PublicarEventoPartida FINALIZADO ===")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

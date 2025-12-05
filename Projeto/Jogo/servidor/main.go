@@ -26,8 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -49,15 +49,15 @@ type Carta = protocolo.Carta
 
 // Servidor é a estrutura principal que gerencia o servidor distribuído
 type Servidor struct {
-	ServerID        string
-	MeuEndereco     string
-	MeuEnderecoHTTP string
-	BrokerMQTT      string
-	MQTTClient      mqtt.Client
-	ClusterManager  cluster.ClusterManagerInterface
-	Store           store.StoreInterface
-	GameManager     game.GameManagerInterface
-	MQTTManager     mqttManager.MQTTManagerInterface
+	ServerID          string
+	MeuEndereco       string
+	MeuEnderecoHTTP   string
+	BrokerMQTT        string
+	MQTTClient        mqtt.Client
+	ClusterManager    cluster.ClusterManagerInterface
+	Store             store.StoreInterface
+	GameManager       game.GameManagerInterface
+	MQTTManager       mqttManager.MQTTManagerInterface
 	BlockchainManager *blockchain.Manager // Gerenciador de blockchain (opcional)
 
 	// Gerenciamento de Partidas
@@ -611,7 +611,7 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 		var dados map[string]string
 		json.Unmarshal(mensagem.Dados, &dados)
 		clienteID := dados["cliente_id"]
-		
+
 		// Armazena endereço da blockchain se fornecido
 		if enderecoBlockchain, ok := dados["endereco"]; ok && enderecoBlockchain != "" {
 			s.mutexClientes.Lock()
@@ -2048,83 +2048,48 @@ func compararCartas(c1, c2 Carta) int {
 }
 
 // notificarAguardandoOponente notifica que está aguardando o oponente jogar
+// IMPORTANTE: Esta função é chamada com o lock da sala ATIVO, então NÃO pode adquirir o lock
 func (s *Servidor) notificarAguardandoOponente(sala *tipos.Sala) {
-	timestamp := time.Now().Format("15:04:05.000")
-	log.Printf("[%s][NOTIFICACAO:%s] === INÍCIO NOTIFICAÇÃO AGUARDANDO OPONENTE ===", timestamp, sala.ID)
-	log.Printf("[%s][NOTIFICACAO:%s] Publicando atualização de aguardo de jogada.", timestamp, sala.ID)
+	// Pequeno delay para garantir que o lock foi liberado pela função chamadora
+	time.Sleep(50 * time.Millisecond)
 
-	// CORREÇÃO: Coleta dados SEM lock da sala para evitar contenção
-	var proximoJogadorNome string
-	var turnoDe string
-	var numeroRodada int
-	var cartasNaMesa map[string]Carta
-
-	// Copia dados sob lock da sala (rápido)
+	// Adquire lock para ler estado
 	sala.Mutex.Lock()
-	turnoDe = sala.TurnoDe
-	numeroRodada = sala.NumeroRodada
-	cartasNaMesa = make(map[string]Carta)
-	for k, v := range sala.CartasNaMesa {
-		cartasNaMesa[k] = v
-	}
-	jogadoresCopy := make([]*tipos.Cliente, len(sala.Jogadores))
-	copy(jogadoresCopy, sala.Jogadores)
-	sombraAddr := sala.ServidorSombra
-	hostAddr := sala.ServidorHost
-	sala.Mutex.Unlock()
+	turnoDe := sala.TurnoDe
+	numeroRodada := sala.NumeroRodada
+	salaID := sala.ID
 
-	// Agora encontra o nome do jogador e conta cartas FORA do lock da sala
-	for _, j := range jogadoresCopy {
+	// Encontra nome do próximo jogador
+	var proximoJogadorNome string
+	for _, j := range sala.Jogadores {
 		if j.ID == turnoDe {
 			proximoJogadorNome = j.Nome
 			break
 		}
 	}
 
-	// Coleta contagem de cartas do mapa global (inventários atualizados)
-	contagemCartas := make(map[string]int)
-	for _, j := range jogadoresCopy {
-		// Busca o jogador no mapa global para obter inventário atualizado
-		s.mutexClientes.RLock()
-		jogadorAtualizado := s.Clientes[j.ID]
-		s.mutexClientes.RUnlock()
-
-		if jogadorAtualizado != nil {
-			jogadorAtualizado.Mutex.Lock()
-			contagemCartas[j.Nome] = len(jogadorAtualizado.Inventario)
-			jogadorAtualizado.Mutex.Unlock()
-		}
+	// Copia cartas na mesa
+	cartasNaMesa := make(map[string]Carta)
+	for k, v := range sala.CartasNaMesa {
+		cartasNaMesa[k] = v
 	}
+	sala.Mutex.Unlock()
+
+	log.Printf("[NOTIFICACAO:%s] Enviando ATUALIZACAO_JOGO. TurnoDe='%s', ProximoJogador='%s'", salaID, turnoDe, proximoJogadorNome)
 
 	msg := protocolo.Mensagem{
 		Comando: "ATUALIZACAO_JOGO",
 		Dados: seguranca.MustJSON(protocolo.DadosAtualizacaoJogo{
 			MensagemDoTurno: fmt.Sprintf("Aguardando jogada de %s...", proximoJogadorNome),
 			NumeroRodada:    numeroRodada,
-			ContagemCartas:  contagemCartas,
 			UltimaJogada:    cartasNaMesa,
 			TurnoDe:         turnoDe,
 		}),
 	}
 
-	log.Printf("[%s][NOTIFICACAO:%s] Enviando mensagem para tópico partidas/%s/eventos", timestamp, sala.ID, sala.ID)
-	log.Printf("[%s][NOTIFICACAO:%s] Conteúdo da mensagem: %+v", timestamp, sala.ID, msg)
-	log.Printf("[%s][NOTIFICACAO_DEBUG] hostAddr='%s', MeuEndereco='%s', sombraAddr='%s'", timestamp, hostAddr, s.MeuEndereco, sombraAddr)
-
-	// CORREÇÃO CRUCIAL: Em partidas cross-server, publica MQTT local E notifica jogadores remotos via HTTP
-	if hostAddr == s.MeuEndereco && sombraAddr != "" {
-		// Este servidor é o Host, partida é cross-server
-		log.Printf("[%s][NOTIFICACAO_CROSS] Publicando no MQTT local e notificando Shadow via HTTP", timestamp)
-		// Publica no MQTT local (vai chegar apenas aos clientes conectados a este servidor)
-		s.publicarEventoPartida(sala.ID, msg)
-		// Notifica jogadores remotos (do Shadow) via HTTP
-		go s.notificarJogadoresRemotosDaPartida(sala.ID, sombraAddr, jogadoresCopy, msg)
-	} else {
-		// Partida local - apenas publica no MQTT
-		s.publicarEventoPartida(sala.ID, msg)
-	}
-
-	log.Printf("[%s][NOTIFICACAO:%s] === FIM NOTIFICAÇÃO AGUARDANDO OPONENTE ===", timestamp, sala.ID)
+	// Publica no MQTT
+	s.publicarEventoPartida(salaID, msg)
+	log.Printf("[NOTIFICACAO:%s] Mensagem publicada com sucesso", salaID)
 }
 
 // notificarResultadoJogada notifica o resultado de uma jogada
@@ -2627,13 +2592,13 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 	log.Printf("[TROCA_BLOCKCHAIN] Iniciando processo de troca na blockchain...")
 	log.Printf("[TROCA_BLOCKCHAIN] Carta oferecida: ID=%s, Nome=%s", req.IDCartaOferecida, cartaOferta.Nome)
 	log.Printf("[TROCA_BLOCKCHAIN] Carta desejada: ID=%s, Nome=%s", req.IDCartaDesejada, cartaDesejada.Nome)
-	
+
 	// Verifica se ambos os jogadores têm endereços blockchain
 	s.mutexClientes.RLock()
 	clienteOferta := s.Clientes[req.IDJogadorOferta]
 	clienteDesejado := s.Clientes[req.IDJogadorDesejado]
 	s.mutexClientes.RUnlock()
-	
+
 	// Se não encontrou no mapa global, busca na sala
 	if clienteOferta == nil {
 		sala.Mutex.Lock()
@@ -2648,7 +2613,7 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 		}
 		sala.Mutex.Unlock()
 	}
-	
+
 	if clienteDesejado == nil {
 		sala.Mutex.Lock()
 		for _, j := range sala.Jogadores {
@@ -2661,32 +2626,32 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 		}
 		sala.Mutex.Unlock()
 	}
-	
+
 	// Executa troca na blockchain se ambos têm endereços e o blockchain manager está disponível
 	if s.BlockchainManager != nil && clienteOferta != nil && clienteDesejado != nil {
 		enderecoOferta := clienteOferta.EnderecoBlockchain
 		enderecoDesejado := clienteDesejado.EnderecoBlockchain
-		
+
 		log.Printf("[TROCA_BLOCKCHAIN] Endereço jogador ofertante (%s): %s", req.NomeJogadorOferta, enderecoOferta)
 		log.Printf("[TROCA_BLOCKCHAIN] Endereço jogador desejado (%s): %s", req.NomeJogadorDesejado, enderecoDesejado)
-		
+
 		if enderecoOferta != "" && enderecoDesejado != "" {
 			// Converte IDs das cartas para tokenIds (big.Int)
 			// O ID da carta na blockchain é o tokenId convertido para string
 			// Verifica se os IDs são números válidos (cartas da blockchain têm IDs numéricos)
 			tokenIdOferta, err1 := strconv.ParseInt(cartaOferta.ID, 10, 64)
 			tokenIdDesejada, err2 := strconv.ParseInt(cartaDesejada.ID, 10, 64)
-			
-			log.Printf("[TROCA_BLOCKCHAIN] Tentando converter IDs: oferta='%s' (err=%v), desejada='%s' (err=%v)", 
+
+			log.Printf("[TROCA_BLOCKCHAIN] Tentando converter IDs: oferta='%s' (err=%v), desejada='%s' (err=%v)",
 				cartaOferta.ID, err1, cartaDesejada.ID, err2)
-			
+
 			if err1 == nil && err2 == nil && tokenIdOferta >= 0 && tokenIdDesejada >= 0 {
 				log.Printf("[TROCA_BLOCKCHAIN] TokenIds: oferta=%d, desejada=%d", tokenIdOferta, tokenIdDesejada)
-				
+
 				// Converte endereços para common.Address
 				addrOferta := common.HexToAddress(enderecoOferta)
 				addrDesejado := common.HexToAddress(enderecoDesejado)
-				
+
 				// CORREÇÃO: Usa RegistrarTrocaAdmin ao invés de CriarPropostaTroca + AceitarPropostaTroca
 				// A função RegistrarTrocaAdmin é executada pelo servidor (admin/owner) e registra
 				// os endereços CORRETOS dos jogadores (ofertante e desejado) na transação
@@ -2695,14 +2660,14 @@ func (s *Servidor) processarTrocaCartas(sala *tipos.Sala, req *protocolo.TrocarC
 				log.Printf("[TROCA_BLOCKCHAIN] Jogador2 (desejado): %s (%s)", req.NomeJogadorDesejado, addrDesejado.Hex())
 				log.Printf("[TROCA_BLOCKCHAIN] Carta1 (oferecida): ID=%d, Nome=%s", tokenIdOferta, cartaOferta.Nome)
 				log.Printf("[TROCA_BLOCKCHAIN] Carta2 (desejada): ID=%d, Nome=%s", tokenIdDesejada, cartaDesejada.Nome)
-				
+
 				propostaID, err := s.BlockchainManager.RegistrarTrocaAdmin(
-					addrOferta,    // Endereço do jogador ofertante (jogador1)
-					addrDesejado,  // Endereço do jogador desejado (jogador2)
+					addrOferta,                  // Endereço do jogador ofertante (jogador1)
+					addrDesejado,                // Endereço do jogador desejado (jogador2)
 					big.NewInt(tokenIdOferta),   // ID da carta oferecida
 					big.NewInt(tokenIdDesejada), // ID da carta desejada
 				)
-				
+
 				if err != nil {
 					log.Printf("[TROCA_BLOCKCHAIN_ERRO] Falha ao registrar troca: %v", err)
 					// Continua com a troca local mesmo se a blockchain falhar
@@ -2990,9 +2955,9 @@ func (s *Servidor) notificarSucessoTrocaComInventario(clienteID, cartaPerdida, c
 	s.mutexClientes.RLock()
 	cliente := s.Clientes[clienteID]
 	s.mutexClientes.RUnlock()
-	
+
 	inventarioFinal := inventario
-	
+
 	if cliente != nil && cliente.EnderecoBlockchain != "" && s.BlockchainManager != nil {
 		log.Printf("[TROCA_BLOCKCHAIN] Buscando inventário atualizado da blockchain para jogador %s", clienteID)
 		addr := common.HexToAddress(cliente.EnderecoBlockchain)
@@ -3012,7 +2977,7 @@ func (s *Servidor) notificarSucessoTrocaComInventario(clienteID, cartaPerdida, c
 			}
 		}
 	}
-	
+
 	msg := fmt.Sprintf("Troca realizada! Você deu '%s' e recebeu '%s'.", cartaPerdida, cartaGanha)
 	resp := protocolo.TrocarCartasResp{
 		Sucesso:              true,

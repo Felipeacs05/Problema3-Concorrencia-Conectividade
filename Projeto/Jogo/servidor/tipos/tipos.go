@@ -17,12 +17,12 @@ type InfoServidor struct {
 
 // Cliente representa um jogador conectado via MQTT
 type Cliente struct {
-	ID                string
-	Nome              string
-	Inventario        []protocolo.Carta
-	Sala              *Sala
+	ID                 string
+	Nome               string
+	Inventario         []protocolo.Carta
+	Sala               *Sala
 	EnderecoBlockchain string // Endereço da carteira blockchain do jogador
-	Mutex             sync.Mutex
+	Mutex              sync.Mutex
 }
 
 // Sala representa uma partida entre dois jogadores (possivelmente de servidores diferentes)
@@ -40,7 +40,8 @@ type Sala struct {
 	EventSeq       int64       // Sequência de eventos para ordenação
 	EventLog       []GameEvent // Log append-only de eventos da partida
 	Mutex          sync.Mutex
-	TurnoDe        string // ID do jogador que deve jogar
+	TurnoDe        string           `json:"turno_de"` // ID do jogador que tem a vez
+	CartasJogadas  map[string]Carta `json:"cartas_jogadas"`
 }
 
 // GameEvent representa um evento no log da partida

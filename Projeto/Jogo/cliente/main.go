@@ -411,8 +411,13 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 		json.Unmarshal(msg.Dados, &dados)
 
 		// ATUALIZA O ESTADO DO TURNO
+		log.Printf("[CLIENTE_DEBUG] Recebido ATUALIZACAO_JOGO. TurnoDe recebido: '%s', meuID: '%s'", dados.TurnoDe, meuID)
 		if dados.TurnoDe != "" {
+			antigoTurno := turnoDeQuem
 			turnoDeQuem = dados.TurnoDe
+			log.Printf("[CLIENTE_DEBUG] Turno atualizado: '%s' -> '%s'", antigoTurno, turnoDeQuem)
+		} else {
+			log.Printf("[CLIENTE_DEBUG] AVISO: TurnoDe está vazio na mensagem!")
 		}
 
 		// --- INÍCIO DA CORREÇÃO ---
@@ -461,19 +466,46 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 }
 
 func handleEventoPartida(client mqtt.Client, msg mqtt.Message) {
+	log.Printf("[MQTT_RX] Mensagem recebida no tópico: %s", msg.Topic())
+
 	var mensagem protocolo.Mensagem
 	if err := json.Unmarshal(msg.Payload(), &mensagem); err != nil {
+		log.Printf("[MQTT_RX_ERRO] Erro ao decodificar mensagem: %v", err)
 		return
 	}
 
+	log.Printf("[MQTT_RX] Comando recebido: %s", mensagem.Comando)
+
 	switch mensagem.Comando {
 	case "ATUALIZACAO_JOGO":
+		log.Printf("[CLIENTE_DEBUG] === ATUALIZACAO_JOGO RECEBIDA ===")
+		log.Printf("[CLIENTE_DEBUG] Payload bruto: %s", string(mensagem.Dados))
+
 		var dados protocolo.DadosAtualizacaoJogo
-		json.Unmarshal(mensagem.Dados, &dados)
+		if err := json.Unmarshal(mensagem.Dados, &dados); err != nil {
+			log.Printf("[CLIENTE_DEBUG] ERRO ao decodificar DadosAtualizacaoJogo: %v", err)
+			return
+		}
+
+		log.Printf("[CLIENTE_DEBUG] Dados decodificados:")
+		log.Printf("[CLIENTE_DEBUG]   - TurnoDe: '%s'", dados.TurnoDe)
+		log.Printf("[CLIENTE_DEBUG]   - NumeroRodada: %d", dados.NumeroRodada)
+		log.Printf("[CLIENTE_DEBUG]   - UltimaJogada: %d cartas", len(dados.UltimaJogada))
+		log.Printf("[CLIENTE_DEBUG]   - meuID: '%s'", meuID)
+		log.Printf("[CLIENTE_DEBUG]   - turnoDeQuem ANTES: '%s'", turnoDeQuem)
 
 		// ATUALIZA O ESTADO DO TURNO
 		if dados.TurnoDe != "" {
+			antigoTurno := turnoDeQuem
 			turnoDeQuem = dados.TurnoDe
+			log.Printf("[CLIENTE_DEBUG] ✅ Turno atualizado: '%s' -> '%s'", antigoTurno, turnoDeQuem)
+			if turnoDeQuem == meuID {
+				log.Printf("[CLIENTE_DEBUG] ✅✅✅ É A MINHA VEZ AGORA! ✅✅✅")
+			} else {
+				log.Printf("[CLIENTE_DEBUG] ⏳ Não é minha vez, é a vez de: '%s'", turnoDeQuem)
+			}
+		} else {
+			log.Printf("[CLIENTE_DEBUG] ⚠️ AVISO: TurnoDe está vazio na mensagem!")
 		}
 
 		// --- INÍCIO DA CORREÇÃO ---
@@ -727,8 +759,9 @@ func jogarCarta(cartaID string) {
 	}
 
 	// VERIFICAÇÃO DE TURNO NO CLIENTE
+	log.Printf("[CLIENTE_DEBUG] Tentando jogar carta. turnoDeQuem='%s', meuID='%s'", turnoDeQuem, meuID)
 	if turnoDeQuem != meuID {
-		fmt.Println("[ERRO] Não é a sua vez de jogar. Aguarde o oponente.")
+		fmt.Printf("[ERRO] Não é a sua vez de jogar. Aguarde o oponente. (Turno atual: '%s', Seu ID: '%s')\n", turnoDeQuem, meuID)
 		return
 	}
 
