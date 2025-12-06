@@ -589,15 +589,18 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	log.Printf("[%s][COMANDO_DEBUG] Comando decodificado: %s", timestamp, mensagem.Comando)
+	log.Printf("[%s][COMANDO_DEBUG] Buscando sala %s...", timestamp, salaID)
 
 	s.mutexSalas.RLock()
 	sala, existe := s.Salas[salaID]
 	s.mutexSalas.RUnlock()
 
 	if !existe {
-		log.Printf("Sala %s não encontrada", salaID)
+		log.Printf("[%s][COMANDO_DEBUG] ⚠️ Sala %s NÃO encontrada! Comando será ignorado.", timestamp, salaID)
 		return
 	}
+
+	log.Printf("[%s][COMANDO_DEBUG] ✅ Sala %s encontrada. Estado: %s", timestamp, salaID, sala.Estado)
 
 	// Verifica se este servidor é o Host ou Sombra
 	sala.Mutex.Lock()
@@ -606,6 +609,7 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 	sala.Mutex.Unlock()
 
 	// Processa comando baseado no tipo
+	log.Printf("[%s][COMANDO_DEBUG] Processando comando: %s", timestamp, mensagem.Comando)
 	switch mensagem.Comando {
 	case "COMPRAR_PACOTE":
 		var dados map[string]string
@@ -643,13 +647,17 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 		}
 
 	case "JOGAR_CARTA":
+		log.Printf("[MQTT_CMD_DEBUG] === JOGAR_CARTA recebido no main.go ===")
 		var dados map[string]interface{}
 		json.Unmarshal(mensagem.Dados, &dados)
 		clienteID := dados["cliente_id"].(string)
 		cartaID := dados["carta_id"].(string)
 
+		log.Printf("[MQTT_CMD_DEBUG] clienteID=%s, cartaID=%s", clienteID, cartaID)
+
 		// Se este servidor é o Host, processa diretamente
 		if servidorHost == s.MeuEndereco {
+			log.Printf("[MQTT_CMD_DEBUG] Sou o Host. Criando GameEventRequest...")
 			// CORREÇÃO: Construir o objeto GameEventRequest
 			eventoReq := &tipos.GameEventRequest{
 				MatchID:   sala.ID,
@@ -660,7 +668,9 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 					"carta_id": cartaID,
 				},
 			}
+			log.Printf("[MQTT_CMD_DEBUG] Chamando processarEventoComoHost...")
 			s.processarEventoComoHost(sala, eventoReq) // <-- CHAMADA CORRIGIDA
+			log.Printf("[MQTT_CMD_DEBUG] processarEventoComoHost retornou")
 
 		} else if servidorSombra == s.MeuEndereco {
 			// Se é a Sombra, encaminha para o Host via API REST
@@ -708,6 +718,87 @@ func (s *Servidor) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 			return
 		}
 		s.processarTrocaCartas(sala, &req)
+
+	case "SINCRONIZAR_CARTAS":
+		log.Printf("[SYNC_CARTAS] === COMANDO SINCRONIZAR_CARTAS RECEBIDO ===")
+		var dados struct {
+			ClienteID string            `json:"cliente_id"`
+			Cartas    []protocolo.Carta `json:"cartas"`
+		}
+		if err := json.Unmarshal(mensagem.Dados, &dados); err != nil {
+			log.Printf("[SYNC_ERRO] Erro ao decodificar sincronização: %v", err)
+			return
+		}
+
+		log.Printf("[SYNC_CARTAS] 🔄 Sincronizando %d cartas para clienteID=%s", len(dados.Cartas), dados.ClienteID)
+		if len(dados.Cartas) > 0 {
+			log.Printf("[SYNC_CARTAS] Primeira carta: ID='%s' (len=%d), Nome=%s, Valor=%d", dados.Cartas[0].ID, len(dados.Cartas[0].ID), dados.Cartas[0].Nome, dados.Cartas[0].Valor)
+			log.Printf("[SYNC_CARTAS] TODAS as cartas recebidas: %+v", dados.Cartas)
+			// Lista todos os IDs recebidos
+			idsRecebidos := make([]string, len(dados.Cartas))
+			for i, c := range dados.Cartas {
+				idsRecebidos[i] = c.ID
+			}
+			log.Printf("[SYNC_CARTAS] 📋 IDs recebidos: %v", idsRecebidos)
+		}
+
+		// Atualiza inventário no servidor local (Host ou Sombra)
+		s.mutexClientes.RLock()
+		cliente := s.Clientes[dados.ClienteID]
+		s.mutexClientes.RUnlock()
+
+		if cliente != nil {
+			cliente.Mutex.Lock()
+			antigoTamanho := len(cliente.Inventario)
+			antigosIDs := make([]string, len(cliente.Inventario))
+			for i, c := range cliente.Inventario {
+				antigosIDs[i] = c.ID
+			}
+			cliente.Inventario = dados.Cartas
+			novosIDs := make([]string, len(cliente.Inventario))
+			for i, c := range cliente.Inventario {
+				novosIDs[i] = c.ID
+			}
+			cliente.Mutex.Unlock()
+			log.Printf("[SYNC_CARTAS] ✅✅✅ Inventário atualizado para %s: %d -> %d cartas ✅✅✅", cliente.Nome, antigoTamanho, len(dados.Cartas))
+			log.Printf("[SYNC_CARTAS] 📋 IDs ANTES: %v", antigosIDs)
+			log.Printf("[SYNC_CARTAS] 📋 IDs DEPOIS: %v", novosIDs)
+			// Verifica se a carta "23" está presente
+			for _, id := range novosIDs {
+				if id == "23" {
+					log.Printf("[SYNC_CARTAS] ✅ Carta '23' está presente no inventário após sincronização!")
+					break
+				}
+			}
+
+			// IMPORTANTE: Também atualiza o inventário do jogador na sala para manter sincronizado
+			sala.Mutex.Lock()
+			for i, jog := range sala.Jogadores {
+				if jog.ID == dados.ClienteID {
+					jog.Mutex.Lock()
+					jog.Inventario = dados.Cartas
+					jog.Mutex.Unlock()
+					log.Printf("[SYNC_CARTAS] ✅ Inventário do jogador na sala também atualizado (índice %d)", i)
+					break
+				}
+			}
+			sala.Mutex.Unlock()
+		} else {
+			log.Printf("[SYNC_CARTAS] ⚠️ AVISO: Cliente %s não encontrado no mapa local!", dados.ClienteID)
+		}
+
+		// Se for Sombra, encaminha para o Host
+		sala.Mutex.Lock()
+		host := sala.ServidorHost
+		sombra := sala.ServidorSombra
+		sala.Mutex.Unlock()
+
+		if s.MeuEndereco == sombra {
+			log.Printf("[SYNC_CARTAS] Sou Sombra. Encaminhando sincronização para Host %s", host)
+			go s.encaminharEventoParaHost(sala, dados.ClienteID, "SYNC_INVENTARIO", map[string]interface{}{
+				"cartas": dados.Cartas,
+			})
+		}
 	}
 }
 
@@ -719,9 +810,29 @@ func (s *Servidor) publicarParaCliente(clienteID string, msg protocolo.Mensagem)
 }
 
 func (s *Servidor) publicarEventoPartida(salaID string, msg protocolo.Mensagem) {
+	log.Printf("[PUB_EVENTO_DEBUG] === publicarEventoPartida INICIADO ===")
+	log.Printf("[PUB_EVENTO_DEBUG] salaID=%s, Comando=%s", salaID, msg.Comando)
+
 	payload, _ := json.Marshal(msg)
 	topico := fmt.Sprintf("partidas/%s/eventos", salaID)
-	s.MQTTClient.Publish(topico, 0, false, payload)
+
+	log.Printf("[PUB_EVENTO_DEBUG] Tópico: %s", topico)
+	log.Printf("[PUB_EVENTO_DEBUG] Payload (primeiros 300 chars): %s", string(payload)[:min(300, len(string(payload)))])
+
+	token := s.MQTTClient.Publish(topico, 0, false, payload)
+	if token.Wait() && token.Error() != nil {
+		log.Printf("[PUB_EVENTO_DEBUG] ERRO ao publicar: %v", token.Error())
+	} else {
+		log.Printf("[PUB_EVENTO_DEBUG] Mensagem publicada com sucesso no tópico %s", topico)
+	}
+	log.Printf("[PUB_EVENTO_DEBUG] === publicarEventoPartida FINALIZADO ===")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ==================== MATCHMAKING E LÓGICA DE JOGO ====================
@@ -1658,6 +1769,9 @@ func (s *Servidor) promoverSombraAHost(sala *tipos.Sala) {
 
 // SUBSTITUA a função 'processarJogadaComoHost' inteira por esta:
 func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameEventRequest) *tipos.EstadoPartida {
+	log.Printf("[HOST_EVENT_DEBUG] === processarEventoComoHost INICIADO ===")
+	log.Printf("[HOST_EVENT_DEBUG] EventType=%s, PlayerID=%s", evento.EventType, evento.PlayerID)
+
 	timestamp := time.Now().Format("15:04:05.000")
 	log.Printf("[%s][EVENTO_HOST:%s] === INÍCIO PROCESSAMENTO EVENTO: %s ===", timestamp, sala.ID, evento.EventType)
 	log.Printf("[%s][EVENTO_HOST:%s] Cliente: %s", timestamp, sala.ID, evento.PlayerID)
@@ -1665,6 +1779,14 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 
 	// Variável para armazenar o vencedor da jogada (se houver)
 	var vencedorJogada string
+
+	// Variáveis para notificação após liberar o lock
+	var precisaNotificarTurno bool
+	var notificacaoTurnoDe string
+	var notificacaoTurnoNome string
+	var notificacaoSalaID string
+	var notificacaoNumeroRodada int
+	var notificacaoCartasNaMesa map[string]Carta
 
 	log.Printf("[%s][EVENTO_HOST:%s] TENTANDO LOCK DA SALA...", timestamp, sala.ID)
 
@@ -1689,6 +1811,31 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 		log.Printf("[%s][EVENTO_HOST:%s] LIBERANDO LOCK DA SALA...", timestamp, sala.ID)
 		sala.Mutex.Unlock()
 		log.Printf("[%s][EVENTO_HOST:%s] LOCK DA SALA LIBERADO", timestamp, sala.ID)
+
+		// CORREÇÃO CRÍTICA: Notificar mudança de turno APÓS liberar o lock
+		log.Printf("[HOST_EVENT_DEBUG] [DEFER] Verificando se precisa notificar turno...")
+		log.Printf("[HOST_EVENT_DEBUG] [DEFER] precisaNotificarTurno=%v, notificacaoTurnoDe='%s'", precisaNotificarTurno, notificacaoTurnoDe)
+
+		if precisaNotificarTurno && notificacaoTurnoDe != "" {
+			log.Printf("[HOST_EVENT_DEBUG] [DEFER] ✅ CONDIÇÃO ATENDIDA! Publicando notificação de mudança de turno.")
+			log.Printf("[HOST_EVENT_DEBUG] [DEFER] TurnoDe='%s', Nome='%s', SalaID='%s'", notificacaoTurnoDe, notificacaoTurnoNome, notificacaoSalaID)
+
+			msg := protocolo.Mensagem{
+				Comando: "ATUALIZACAO_JOGO",
+				Dados: seguranca.MustJSON(protocolo.DadosAtualizacaoJogo{
+					MensagemDoTurno: fmt.Sprintf("Aguardando jogada de %s...", notificacaoTurnoNome),
+					NumeroRodada:    notificacaoNumeroRodada,
+					UltimaJogada:    notificacaoCartasNaMesa,
+					TurnoDe:         notificacaoTurnoDe,
+				}),
+			}
+
+			log.Printf("[HOST_EVENT_DEBUG] [DEFER] Mensagem criada. Dados: %s", string(msg.Dados))
+			s.publicarEventoPartida(notificacaoSalaID, msg)
+			log.Printf("[HOST_EVENT_DEBUG] [DEFER] ✅✅✅ Notificação publicada com sucesso! ✅✅✅")
+		} else {
+			log.Printf("[HOST_EVENT_DEBUG] [DEFER] ❌ NÃO publicando notificação. precisaNotificarTurno=%v, notificacaoTurnoDe='%s'", precisaNotificarTurno, notificacaoTurnoDe)
+		}
 
 		// CORREÇÃO CRÍTICA: Verificação de início da partida APÓS liberar o lock
 		// Isso evita deadlock em partidas cross-server
@@ -1768,6 +1915,13 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 		// CORREÇÃO: A verificação NÃO acontece aqui para evitar deadlock.
 		// Será feita após liberar o lock.
 
+	case "SYNC_INVENTARIO":
+		log.Printf("[HOST] Recebido sincronização de inventário para %s", nomeJogador)
+		// NOTA: A sincronização já foi feita no servidor local quando recebeu SINCRONIZAR_CARTAS
+		// Este evento é apenas para notificar o Host em partidas cross-server
+		// O inventário já está atualizado no servidor local (Sombra)
+		log.Printf("[HOST] Inventário sincronizado (já processado no servidor local)")
+
 	case "CHAT":
 		// CORREÇÃO: Primeiro, faça a asserção de tipo
 		dadosDoEvento, ok := evento.Data.(map[string]interface{})
@@ -1788,6 +1942,8 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 		go s.retransmitirChat(sala, jogador, texto)
 
 	case "JOGAR_CARTA", "CARD_PLAYED": // Aceita ambos os tipos por compatibilidade
+		log.Printf("[HOST_EVENT_DEBUG] Processando JOGAR_CARTA/CARD_PLAYED dentro do switch")
+
 		// CORREÇÃO: Primeiro, faça a asserção de tipo do 'Data' para um map
 		dadosDoEvento, ok := evento.Data.(map[string]interface{})
 		if !ok {
@@ -1796,44 +1952,134 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 		}
 
 		// Agora sim, acesse o map 'dadosDoEvento'
-		cartaID, ok := dadosDoEvento["carta_id"].(string)
+		cartaIDRaw, ok := dadosDoEvento["carta_id"]
 		if !ok {
 			log.Printf("[EVENTO_HOST:%s] Evento %s sem 'carta_id' no 'Data'", sala.ID, evento.EventType)
+			log.Printf("[EVENTO_HOST:%s] Chaves disponíveis em Data: %v", sala.ID, func() []string {
+				keys := make([]string, 0, len(dadosDoEvento))
+				for k := range dadosDoEvento {
+					keys = append(keys, k)
+				}
+				return keys
+			}())
 			return nil
 		}
+		log.Printf("[EVENTO_HOST:%s] carta_id extraído (tipo: %T, valor: %v)", sala.ID, cartaIDRaw, cartaIDRaw)
+
+		// Tenta converter para string (pode vir como string, int, float64, etc)
+		var cartaID string
+		switch v := cartaIDRaw.(type) {
+		case string:
+			cartaID = v
+		case float64:
+			cartaID = fmt.Sprintf("%.0f", v) // Converte número para string sem decimais
+		case int:
+			cartaID = fmt.Sprintf("%d", v)
+		default:
+			cartaID = fmt.Sprintf("%v", v) // Fallback: converte qualquer coisa para string
+		}
+		log.Printf("[EVENTO_HOST:%s] carta_id convertido para string: '%s' (len: %d)", sala.ID, cartaID, len(cartaID))
 
 		if _, jaJogou := sala.CartasNaMesa[nomeJogador]; jaJogou {
 			log.Printf("[HOST] Jogador %s já jogou nesta rodada", nomeJogador)
 			return nil
 		}
+		log.Printf("[EVENTO_HOST:%s] Jogador %s ainda não jogou nesta rodada, continuando...", sala.ID, nomeJogador)
 
 		// CORREÇÃO: Verificar se é jogador local ou remoto
 		// Se o jogador está no mapa local de clientes, é local. Caso contrário, é remoto (Shadow).
 		s.mutexClientes.RLock()
 		_, jogadorLocal := s.Clientes[evento.PlayerID]
 		s.mutexClientes.RUnlock()
+		log.Printf("[EVENTO_HOST:%s] Jogador %s é local? %v", sala.ID, evento.PlayerID, jogadorLocal)
 
 		var carta Carta
 
 		// CORREÇÃO: Apenas tenta remover do inventário local se o jogador for local
 		if jogadorLocal {
-			jogador.Mutex.Lock()
+			log.Printf("[EVENTO_HOST:%s] ✅ Jogador é LOCAL, buscando no inventário global...", sala.ID)
+			// CRÍTICO: Busca o jogador do mapa global (que tem o inventário sincronizado)
+			s.mutexClientes.RLock()
+			jogadorGlobal := s.Clientes[evento.PlayerID]
+			s.mutexClientes.RUnlock()
+
+			if jogadorGlobal == nil {
+				log.Printf("[HOST] ❌ ERRO: Jogador %s não encontrado no mapa global!", evento.PlayerID)
+				return nil
+			}
+			log.Printf("[EVENTO_HOST:%s] ✅ Jogador global encontrado: %s (inventário tem %d cartas)", sala.ID, jogadorGlobal.Nome, len(jogadorGlobal.Inventario))
+
+			// Verifica também se o jogador na sala tem o mesmo inventário
+			// NOTA: Não precisamos de lock aqui porque já temos o lock da sala obtido anteriormente
+			var jogadorNaSala *tipos.Cliente
+			for _, j := range sala.Jogadores {
+				if j.ID == evento.PlayerID {
+					jogadorNaSala = j
+					break
+				}
+			}
+
+			if jogadorNaSala != nil {
+				jogadorNaSala.Mutex.Lock()
+				log.Printf("[HOST_DEBUG] Inventário do jogador na sala tem %d cartas", len(jogadorNaSala.Inventario))
+				if len(jogadorNaSala.Inventario) > 0 {
+					log.Printf("[HOST_DEBUG] Primeiras 3 cartas do jogador na sala: %v", jogadorNaSala.Inventario[:min(3, len(jogadorNaSala.Inventario))])
+				}
+				jogadorNaSala.Mutex.Unlock()
+			} else {
+				log.Printf("[HOST_DEBUG] ⚠️ Jogador %s não encontrado na sala!", evento.PlayerID)
+			}
+
+			log.Printf("[HOST] 🔍 Buscando carta '%s' (tipo: %T, len: %d) no inventário de %s (inventário tem %d cartas)", cartaID, cartaID, len(cartaID), nomeJogador, len(jogadorGlobal.Inventario))
+			if len(jogadorGlobal.Inventario) > 0 {
+				log.Printf("[HOST] Primeiras 3 cartas do inventário: %v", jogadorGlobal.Inventario[:min(3, len(jogadorGlobal.Inventario))])
+				log.Printf("[HOST] TODAS as cartas do inventário: %+v", jogadorGlobal.Inventario)
+				// Lista todos os IDs para debug
+				ids := make([]string, len(jogadorGlobal.Inventario))
+				for i, c := range jogadorGlobal.Inventario {
+					ids[i] = c.ID
+				}
+				log.Printf("[HOST] 📋 IDs no inventário: %v", ids)
+			} else {
+				log.Printf("[HOST] ⚠️ Inventário está VAZIO!")
+			}
+
+			jogadorGlobal.Mutex.Lock()
 			cartaIndex := -1
-			for i, c := range jogador.Inventario {
-				if c.ID == cartaID {
+			log.Printf("[HOST] 🔎 Iniciando busca no inventário (total: %d cartas)...", len(jogadorGlobal.Inventario))
+			for i, c := range jogadorGlobal.Inventario {
+				igual := c.ID == cartaID
+				log.Printf("[HOST_DEBUG] [%d/%d] Comparando: buscando '%s' (len=%d, bytes=%v) com inventário[%d].ID='%s' (len=%d, bytes=%v) -> igual? %v",
+					i+1, len(jogadorGlobal.Inventario), cartaID, len(cartaID), []byte(cartaID), i, c.ID, len(c.ID), []byte(c.ID), igual)
+				if igual {
 					carta = c
 					cartaIndex = i
+					log.Printf("[HOST_DEBUG] ✅✅✅ Carta encontrada no índice %d! ✅✅✅", i)
 					break
 				}
 			}
 			if cartaIndex == -1 {
-				jogador.Mutex.Unlock()
-				log.Printf("[HOST] Carta %s não encontrada no inventário de %s (jogador local)", cartaID, nomeJogador)
+				jogadorGlobal.Mutex.Unlock()
+				log.Printf("[HOST] ❌ Carta %s (tipo: %T, len: %d) não encontrada no inventário de %s (jogador local)", cartaID, cartaID, len(cartaID), nomeJogador)
+				log.Printf("[HOST] IDs disponíveis no inventário: %v", func() []string {
+					ids := make([]string, len(jogadorGlobal.Inventario))
+					for i, c := range jogadorGlobal.Inventario {
+						ids[i] = c.ID
+						log.Printf("[HOST_DEBUG] Inventário[%d]: ID='%s' (tipo: %T, len: %d)", i, c.ID, c.ID, len(c.ID))
+					}
+					return ids
+				}())
 				return nil
 			}
-			jogador.Inventario = append(jogador.Inventario[:cartaIndex], jogador.Inventario[cartaIndex+1:]...)
+			jogadorGlobal.Inventario = append(jogadorGlobal.Inventario[:cartaIndex], jogadorGlobal.Inventario[cartaIndex+1:]...)
+			jogadorGlobal.Mutex.Unlock()
+
+			// Atualiza também na sala para manter sincronizado
+			jogador.Mutex.Lock()
+			jogador.Inventario = jogadorGlobal.Inventario
 			jogador.Mutex.Unlock()
-			log.Printf("[HOST] Jogador local %s jogou carta %s (Poder: %d) - eventSeq: %d", nomeJogador, carta.Nome, carta.Valor, currentEventSeq)
+
+			log.Printf("[HOST] ✅ Jogador local %s jogou carta %s (Poder: %d) - eventSeq: %d", nomeJogador, carta.Nome, carta.Valor, currentEventSeq)
 		} else {
 			// Jogador remoto - apenas obtém os dados da carta do evento
 			// O Shadow já validou e removeu a carta do inventário do jogador remoto
@@ -1855,18 +2101,34 @@ func (s *Servidor) processarEventoComoHost(sala *tipos.Sala, evento *tipos.GameE
 		sala.CartasNaMesa[nomeJogador] = carta
 
 		if len(sala.CartasNaMesa) == len(sala.Jogadores) {
+			log.Printf("[HOST_EVENT_DEBUG] Ambos jogaram. Resolvendo jogada...")
 			vencedorJogada = s.resolverJogada(sala)
 		} else {
+			log.Printf("[HOST_EVENT_DEBUG] Apenas um jogou. Mudando turno...")
 			for _, j := range sala.Jogadores {
 				if j.ID != evento.PlayerID {
 					log.Printf("[TURNO:%s] Jogador %s jogou. Próximo a jogar: %s (%s)", sala.ID, evento.PlayerID, j.Nome, j.ID)
 					s.mudarTurnoAtomicamente(sala, j.ID)
+
+					// CORREÇÃO CRÍTICA: Coleta dados AGORA (com lock) para publicar DEPOIS
+					precisaNotificarTurno = true
+					notificacaoTurnoDe = j.ID
+					notificacaoTurnoNome = j.Nome
+					notificacaoSalaID = sala.ID
+					notificacaoNumeroRodada = sala.NumeroRodada
+					notificacaoCartasNaMesa = make(map[string]Carta)
+					for k, v := range sala.CartasNaMesa {
+						notificacaoCartasNaMesa[k] = v
+					}
+
+					log.Printf("[HOST_EVENT_DEBUG] Dados coletados para notificação. TurnoDe='%s' (%s)", notificacaoTurnoDe, notificacaoTurnoNome)
 					break
 				}
 			}
-			// CORREÇÃO: Chama em goroutine para não bloquear o lock da sala
-			// A função notificarAguardandoOponente já não requer lock ativo
-			go s.notificarAguardandoOponente(sala) // Notifica que a jogada foi feita, mas espera o outro
+
+			if !precisaNotificarTurno {
+				log.Printf("[HOST_EVENT_DEBUG] ERRO: Não foi possível encontrar o próximo jogador!")
+			}
 		}
 
 	} // Fim do switch
@@ -2050,20 +2312,27 @@ func compararCartas(c1, c2 Carta) int {
 // notificarAguardandoOponente notifica que está aguardando o oponente jogar
 // IMPORTANTE: Esta função é chamada com o lock da sala ATIVO, então NÃO pode adquirir o lock
 func (s *Servidor) notificarAguardandoOponente(sala *tipos.Sala) {
+	log.Printf("[NOTIFICACAO_DEBUG] === notificarAguardandoOponente INICIADO ===")
+	log.Printf("[NOTIFICACAO_DEBUG] salaID=%s", sala.ID)
+
 	// Pequeno delay para garantir que o lock foi liberado pela função chamadora
 	time.Sleep(50 * time.Millisecond)
+	log.Printf("[NOTIFICACAO_DEBUG] Delay de 50ms concluído")
 
 	// Adquire lock para ler estado
 	sala.Mutex.Lock()
+	log.Printf("[NOTIFICACAO_DEBUG] Lock adquirido")
 	turnoDe := sala.TurnoDe
 	numeroRodada := sala.NumeroRodada
 	salaID := sala.ID
+	log.Printf("[NOTIFICACAO_DEBUG] Estado lido: TurnoDe='%s', NumeroRodada=%d", turnoDe, numeroRodada)
 
 	// Encontra nome do próximo jogador
 	var proximoJogadorNome string
 	for _, j := range sala.Jogadores {
 		if j.ID == turnoDe {
 			proximoJogadorNome = j.Nome
+			log.Printf("[NOTIFICACAO_DEBUG] Próximo jogador encontrado: %s (%s)", j.Nome, j.ID)
 			break
 		}
 	}
@@ -2073,9 +2342,14 @@ func (s *Servidor) notificarAguardandoOponente(sala *tipos.Sala) {
 	for k, v := range sala.CartasNaMesa {
 		cartasNaMesa[k] = v
 	}
+	log.Printf("[NOTIFICACAO_DEBUG] Cartas na mesa copiadas: %d cartas", len(cartasNaMesa))
 	sala.Mutex.Unlock()
+	log.Printf("[NOTIFICACAO_DEBUG] Lock liberado")
 
-	log.Printf("[NOTIFICACAO:%s] Enviando ATUALIZACAO_JOGO. TurnoDe='%s', ProximoJogador='%s'", salaID, turnoDe, proximoJogadorNome)
+	log.Printf("[NOTIFICACAO_DEBUG] Montando mensagem ATUALIZACAO_JOGO")
+	log.Printf("[NOTIFICACAO_DEBUG]   - TurnoDe='%s'", turnoDe)
+	log.Printf("[NOTIFICACAO_DEBUG]   - NumeroRodada=%d", numeroRodada)
+	log.Printf("[NOTIFICACAO_DEBUG]   - ProximoJogador='%s'", proximoJogadorNome)
 
 	msg := protocolo.Mensagem{
 		Comando: "ATUALIZACAO_JOGO",
@@ -2087,9 +2361,14 @@ func (s *Servidor) notificarAguardandoOponente(sala *tipos.Sala) {
 		}),
 	}
 
+	log.Printf("[NOTIFICACAO_DEBUG] Mensagem criada. Dados JSON: %s", string(msg.Dados))
+	log.Printf("[NOTIFICACAO_DEBUG] Chamando publicarEventoPartida...")
+
 	// Publica no MQTT
 	s.publicarEventoPartida(salaID, msg)
-	log.Printf("[NOTIFICACAO:%s] Mensagem publicada com sucesso", salaID)
+
+	log.Printf("[NOTIFICACAO_DEBUG] publicarEventoPartida retornou")
+	log.Printf("[NOTIFICACAO_DEBUG] === notificarAguardandoOponente FINALIZADO ===")
 }
 
 // notificarResultadoJogada notifica o resultado de uma jogada

@@ -171,16 +171,19 @@ func (m *Manager) handleLogin(client mqtt.Client, msg mqtt.Message) {
 
 // handleComandoPartida handles game command messages
 func (m *Manager) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
+	log.Printf("[MQTT_HANDLER] === Handler mqtt.go recebeu comando ===")
 	var comando protocolo.Mensagem
 	if err := json.Unmarshal(msg.Payload(), &comando); err != nil {
-		log.Printf("Erro ao decodificar comando: %v", err)
+		log.Printf("[MQTT_HANDLER] Erro ao decodificar comando: %v", err)
 		return
 	}
+
+	log.Printf("[MQTT_HANDLER] Comando decodificado: %s", comando.Comando)
 
 	// Extract room ID from topic
 	topicParts := strings.Split(msg.Topic(), "/")
 	if len(topicParts) < 3 {
-		log.Printf("Tópico de comando inválido: %s", msg.Topic())
+		log.Printf("[MQTT_HANDLER] Tópico de comando inválido: %s", msg.Topic())
 		return
 	}
 	salaID := topicParts[1]
@@ -189,10 +192,11 @@ func (m *Manager) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 	salas := m.mqttInterface.GetSalas()
 	sala, exists := salas[salaID]
 	if !exists {
-		log.Printf("Sala %s não encontrada", salaID)
+		log.Printf("[MQTT_HANDLER] Sala %s não encontrada", salaID)
 		return
 	}
 
+	log.Printf("[MQTT_HANDLER] Processando comando %s no switch...", comando.Comando)
 	// Process command based on type
 	switch comando.Comando {
 	case "COMPRAR_PACOTE":
@@ -249,8 +253,14 @@ func (m *Manager) handleComandoPartida(client mqtt.Client, msg mqtt.Message) {
 		log.Printf("[MQTT_CMD_DEBUG] ProcessarJogada retornou")
 		log.Printf("[MQTT_CMD_DEBUG] === JOGAR_CARTA processado ===")
 
+	case "SINCRONIZAR_CARTAS":
+		log.Printf("[MQTT_SYNC] === SINCRONIZAR_CARTAS recebido no handler mqtt.go ===")
+		log.Printf("[MQTT_SYNC] Este handler não processa SINCRONIZAR_CARTAS. O handler em main.go deve processar.")
+		// Este comando é processado pelo handler em main.go, então apenas logamos aqui
+		// e deixamos o handler em main.go processar
+
 	default:
-		log.Printf("Comando não reconhecido: %s", comando.Comando)
+		log.Printf("[MQTT_CMD] Comando não reconhecido neste handler: %s", comando.Comando)
 	}
 }
 

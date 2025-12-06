@@ -323,6 +323,26 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 			fmt.Printf("[DEBUG] Inscrito com sucesso no tópico da partida: %s\n", topicoPartida)
 		}
 
+		// CRÍTICO: Carrega cartas da blockchain ANTES de sincronizar
+		log.Printf("[SYNC] Entrei na partida. Carregando inventário da blockchain...")
+		if blockchainEnabled && chavePrivada != nil {
+			cartas, err := obterInventarioBlockchain()
+			if err == nil && len(cartas) > 0 {
+				meuInventario = cartas
+				log.Printf("[SYNC] Carregadas %d cartas da blockchain", len(cartas))
+			} else {
+				log.Printf("[SYNC] Erro ao carregar da blockchain ou sem cartas: %v", err)
+			}
+		}
+
+		// Sincroniza com o servidor AGORA (mesmo que vazio, para garantir que o servidor saiba)
+		if len(meuInventario) > 0 {
+			log.Printf("[SYNC] Sincronizando %d cartas com o servidor...", len(meuInventario))
+			sincronizarCartasComServidor()
+		} else {
+			log.Printf("[SYNC] AVISO: Inventário vazio! O jogador precisa comprar cartas primeiro.")
+		}
+
 	case "TROCA_CONCLUIDA":
 		var resp protocolo.TrocarCartasResp
 		json.Unmarshal(msg.Dados, &resp)
@@ -355,6 +375,9 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 					fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
 						i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
 				}
+				// CRÍTICO: Sincroniza com o servidor após atualizar inventário
+				log.Printf("[SYNC] Inventário atualizado após compra. Sincronizando %d cartas...", len(cartasBlockchain))
+				sincronizarCartasComServidor()
 			} else {
 				// Fallback: usa dados do servidor se blockchain falhar
 				meuInventario = dados.Cartas
@@ -367,6 +390,9 @@ func processarMensagemServidor(msg protocolo.Mensagem) {
 					fmt.Printf("  %d. %s %s - Poder: %d (Raridade: %s) [ID: %s]\n",
 						i+1, carta.Nome, carta.Naipe, carta.Valor, carta.Raridade, carta.ID)
 				}
+				// CRÍTICO: Sincroniza com o servidor após atualizar inventário (fallback)
+				log.Printf("[SYNC] Inventário atualizado após compra (fallback). Sincronizando %d cartas...", len(dados.Cartas))
+				sincronizarCartasComServidor()
 			}
 		} else {
 			// Sem blockchain, usa dados do servidor
@@ -494,13 +520,14 @@ func handleEventoPartida(client mqtt.Client, msg mqtt.Message) {
 		log.Printf("[CLIENTE_DEBUG]   - meuID: '%s'", meuID)
 		log.Printf("[CLIENTE_DEBUG]   - turnoDeQuem ANTES: '%s'", turnoDeQuem)
 
-		// ATUALIZA O ESTADO DO TURNO
+		// ATUALIZA O ESTADO DO TURNO - CRÍTICO!
 		if dados.TurnoDe != "" {
 			antigoTurno := turnoDeQuem
 			turnoDeQuem = dados.TurnoDe
 			log.Printf("[CLIENTE_DEBUG] ✅ Turno atualizado: '%s' -> '%s'", antigoTurno, turnoDeQuem)
+			log.Printf("[CLIENTE_DEBUG] ✅ Verificação: turnoDeQuem agora é '%s', meuID é '%s'", turnoDeQuem, meuID)
 			if turnoDeQuem == meuID {
-				log.Printf("[CLIENTE_DEBUG] ✅✅✅ É A MINHA VEZ AGORA! ✅✅✅")
+				log.Printf("[CLIENTE_DEBUG] ✅✅✅ É A MINHA VEZ AGORA IRMAO! ✅✅✅")
 			} else {
 				log.Printf("[CLIENTE_DEBUG] ⏳ Não é minha vez, é a vez de: '%s'", turnoDeQuem)
 			}
@@ -871,6 +898,60 @@ func mostrarCartas() {
 	}
 
 	fmt.Printf("\nTotal: %d cartas\n", len(meuInventario))
+
+	// Sincroniza com o servidor (se conectado)
+	if mqttClient != nil && mqttClient.IsConnected() {
+		sincronizarCartasComServidor()
+	}
+}
+
+func sincronizarCartasComServidor() {
+	if len(meuInventario) == 0 {
+		log.Printf("[SYNC] AVISO: Tentando sincronizar mas inventário está vazio!")
+		return
+	}
+
+	log.Printf("[SYNC] === INICIANDO SINCRONIZAÇÃO ===")
+	log.Printf("[SYNC] Enviando %d cartas para sincronização com o servidor...", len(meuInventario))
+	log.Printf("[SYNC] Sala atual: '%s'", salaAtual)
+	log.Printf("[SYNC] Meu ID: '%s'", meuID)
+
+	dados := struct {
+		ClienteID string            `json:"cliente_id"`
+		Cartas    []protocolo.Carta `json:"cartas"`
+	}{
+		ClienteID: meuID,
+		Cartas:    meuInventario,
+	}
+
+	msg := protocolo.Mensagem{
+		Comando: "SINCRONIZAR_CARTAS",
+		Dados:   mustJSON(dados),
+	}
+
+	payload, _ := json.Marshal(msg)
+	topico := fmt.Sprintf("partidas/%s/comandos", salaAtual)
+	// Se não tiver sala, manda para tópico genérico ou aguarda entrar em sala
+	if salaAtual == "" {
+		// Tenta mandar para o tópico de comandos do servidor se possível,
+		// mas como o tópico depende da sala, talvez seja melhor esperar entrar na sala.
+		// Porém, o servidor precisa das cartas ANTES de validar a jogada.
+		// O tópico "partidas/+/comandos" é wildcard no subscribe, mas para publicar precisamos de um ID.
+		// Se não estamos em sala, não podemos sincronizar ainda.
+		log.Printf("[SYNC] Ainda não estou em uma sala. Sincronização adiada.")
+		return
+	}
+
+	log.Printf("[SYNC] Publicando no tópico: %s", topico)
+	log.Printf("[SYNC] Payload: %s", string(payload))
+
+	token := mqttClient.Publish(topico, 0, false, payload)
+	if token.Wait() && token.Error() != nil {
+		log.Printf("[SYNC] ERRO ao publicar: %v", token.Error())
+	} else {
+		log.Printf("[SYNC] ✅✅✅ Cartas enviadas para o servidor com sucesso! ✅✅✅")
+	}
+	log.Printf("[SYNC] === FIM SINCRONIZAÇÃO ===")
 }
 
 func mostrarAjuda() {

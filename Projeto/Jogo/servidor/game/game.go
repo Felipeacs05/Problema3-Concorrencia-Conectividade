@@ -422,7 +422,7 @@ func (m *Manager) NotificarAtualizacaoJogo(sala *tipos.Sala) {
 	}
 
 	log.Printf("[NOTIFICACAO_DEBUG] Dados montados usando protocolo.DadosAtualizacaoJogo")
-	log.Printf("[NOTIFICACAO_DEBUG]   - TurnoDe='%s'", dados.TurnoDe)
+	log.Printf("[NOTIFICACAO_DEBUG]   - TurnoDeeeeee='%s'", dados.TurnoDe)
 	log.Printf("[NOTIFICACAO_DEBUG]   - NumeroRodada=%d", dados.NumeroRodada)
 	log.Printf("[NOTIFICACAO_DEBUG]   - UltimaJogada=%d cartas", len(dados.UltimaJogada))
 
