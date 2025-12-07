@@ -30,6 +30,7 @@ type ServidorInterface interface {
 	ProcessarTrocaDireta(sala *tipos.Sala, req *protocolo.TrocarCartasReq)
 	AplicarTrocaLocal(clienteID string, idCartaDesejada string, cartaOferecida tipos.Carta) (bool, tipos.Carta, []tipos.Carta)
 	BuscarCartaEmCliente(clienteID, cartaID string) tipos.Carta
+	RegistrarRodadaBlockchain(jogador1, jogador2, vencedor string) error
 }
 
 type Server struct {
@@ -90,6 +91,7 @@ func (s *Server) setupRoutes() {
 	{
 		stock.POST("/comprar_pacote", s.handleComprarPacote)
 		stock.GET("/status", s.handleGetEstoque)
+		stock.POST("/registrar_rodada", s.handleRegistrarRodadaBlockchain)
 	}
 
 	// Rotas para a lógica do jogo (sincronização Host/Sombra)

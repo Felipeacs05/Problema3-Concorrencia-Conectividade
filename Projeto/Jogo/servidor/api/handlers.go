@@ -166,6 +166,28 @@ func (s *Server) handleGetEstoque(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": status, "total": total})
 }
 
+func (s *Server) handleRegistrarRodadaBlockchain(c *gin.Context) {
+	var req struct {
+		Jogador1 string `json:"jogador1"`
+		Jogador2 string `json:"jogador2"`
+		Vencedor string `json:"vencedor"`
+		Rodada   int    `json:"rodada"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Requisição inválida"})
+		return
+	}
+
+	err := s.servidor.RegistrarRodadaBlockchain(req.Jogador1, req.Jogador2, req.Vencedor)
+	if err != nil {
+		log.Printf("[API] Erro ao registrar rodada na blockchain: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao registrar rodada na blockchain"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"mensagem": "Rodada registrada com sucesso na blockchain"})
+}
+
 // Handlers de partida
 func (s *Server) handleEncaminharComando(c *gin.Context) {
 	var req struct {

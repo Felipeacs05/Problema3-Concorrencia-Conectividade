@@ -408,9 +408,12 @@ func novoServidor(endereco, broker string) *Servidor {
 		} else {
 			servidor.BlockchainManager = blockchainManager
 			log.Printf("✓ Blockchain inicializado com sucesso")
+			log.Printf("[BLOCKCHAIN_INIT_DEBUG] BlockchainManager atribuído? %v (endereço: %p)",
+				servidor.BlockchainManager != nil, servidor.BlockchainManager)
 		}
 	} else {
 		log.Printf("ℹ Blockchain não configurado (variáveis de ambiente não definidas). Usando modo tradicional.")
+		log.Printf("[BLOCKCHAIN_INIT_DEBUG] rpcURL='%s', contractAddress='%s'", rpcURL, contractAddress)
 	}
 
 	return servidor
@@ -2232,6 +2235,50 @@ func (s *Servidor) resolverJogada(sala *tipos.Sala) string {
 
 	log.Printf("Resultado da jogada: %s venceu", vencedorJogada)
 
+	// ========== REGISTRAR RODADA NA BLOCKCHAIN ==========
+	if vencedor != nil && s.BlockchainManager != nil {
+		// Busca os endereços blockchain dos jogadores
+		s.mutexClientes.RLock()
+		j1Global := s.Clientes[j1.ID]
+		j2Global := s.Clientes[j2.ID]
+		s.mutexClientes.RUnlock()
+
+		if j1Global == nil {
+			j1Global = j1
+		}
+		if j2Global == nil {
+			j2Global = j2
+		}
+
+		log.Printf("[BLOCKCHAIN_RODADA_DEBUG] j1Global.EnderecoBlockchain='%s', j2Global.EnderecoBlockchain='%s'",
+			j1Global.EnderecoBlockchain, j2Global.EnderecoBlockchain)
+
+		if j1Global.EnderecoBlockchain != "" && j2Global.EnderecoBlockchain != "" {
+			addrJ1 := common.HexToAddress(j1Global.EnderecoBlockchain)
+			addrJ2 := common.HexToAddress(j2Global.EnderecoBlockchain)
+
+			var addrVencedor common.Address
+			if vencedor.ID == j1.ID {
+				addrVencedor = addrJ1
+			} else {
+				addrVencedor = addrJ2
+			}
+
+			log.Printf("[BLOCKCHAIN_RODADA] Registrando: %s vs %s -> Vencedor: %s", j1.Nome, j2.Nome, vencedor.Nome)
+			log.Printf("[BLOCKCHAIN_RODADA_DEBUG] j1.ID=%s, j2.ID=%s, vencedor.ID=%s", j1.ID, j2.ID, vencedor.ID)
+			log.Printf("[BLOCKCHAIN_RODADA_DEBUG] addrJ1=%s, addrJ2=%s, addrVencedor=%s", addrJ1.Hex(), addrJ2.Hex(), addrVencedor.Hex())
+			go func() {
+				err := s.BlockchainManager.RegistrarPartida(addrJ1, addrJ2, addrVencedor)
+				if err != nil {
+					log.Printf("[BLOCKCHAIN_RODADA_ERRO] %v", err)
+				} else {
+					log.Printf("[BLOCKCHAIN_RODADA] ✅ Registrado com sucesso!")
+				}
+			}()
+		}
+	}
+	// ========== FIM REGISTRO NA BLOCKCHAIN ==========
+
 	// Limpa a mesa
 	sala.CartasNaMesa = make(map[string]Carta)
 
@@ -3428,6 +3475,67 @@ func (s *Servidor) EncaminharParaLider(c *gin.Context) {
 	defer resp.Body.Close()
 
 	c.DataFromReader(resp.StatusCode, resp.ContentLength, resp.Header.Get("Content-Type"), resp.Body, nil)
+}
+
+// encaminharRegistroRodadaParaLider envia uma requisição para o líder registrar a rodada na blockchain
+func (s *Servidor) encaminharRegistroRodadaParaLider(lider string, addrJ1, addrJ2, addrVencedor common.Address, numeroRodada int) {
+	dados := map[string]interface{}{
+		"jogador1": addrJ1.Hex(),
+		"jogador2": addrJ2.Hex(),
+		"vencedor": addrVencedor.Hex(),
+		"rodada":   numeroRodada,
+	}
+	jsonData, _ := json.Marshal(dados)
+	url := fmt.Sprintf("http://%s/estoque/registrar_rodada", lider)
+
+	// Cria requisição HTTP com autenticação JWT
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("[BLOCKCHAIN_RODADA_ERRO] Erro ao criar requisição para o líder: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+seguranca.GenerateJWT(s.ServerID))
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[BLOCKCHAIN_RODADA_ERRO] Erro ao enviar requisição para o líder: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Printf("[BLOCKCHAIN_RODADA] ✅ Rodada registrada com sucesso na blockchain pelo líder!")
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[BLOCKCHAIN_RODADA_ERRO] Líder retornou status %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// RegistrarRodadaBlockchain registra uma rodada na blockchain (chamado pelo handler da API)
+func (s *Servidor) RegistrarRodadaBlockchain(jogador1, jogador2, vencedor string) error {
+	if s.BlockchainManager == nil {
+		return fmt.Errorf("BlockchainManager não disponível")
+	}
+
+	addrJ1 := common.HexToAddress(jogador1)
+	addrJ2 := common.HexToAddress(jogador2)
+	addrVencedor := common.HexToAddress(vencedor)
+
+	log.Printf("[BLOCKCHAIN_RODADA] Registrando rodada na blockchain (chamado pelo líder)...")
+	log.Printf("[BLOCKCHAIN_RODADA] Jogador 1: %s", addrJ1.Hex())
+	log.Printf("[BLOCKCHAIN_RODADA] Jogador 2: %s", addrJ2.Hex())
+	log.Printf("[BLOCKCHAIN_RODADA] Vencedor: %s", addrVencedor.Hex())
+
+	err := s.BlockchainManager.RegistrarPartida(addrJ1, addrJ2, addrVencedor)
+	if err != nil {
+		log.Printf("[BLOCKCHAIN_RODADA_ERRO] Falha ao registrar rodada na blockchain: %v", err)
+		return err
+	}
+
+	log.Printf("[BLOCKCHAIN_RODADA] ✅ Rodada registrada com sucesso na blockchain!")
+	return nil
 }
 
 func (s *Servidor) FormarPacote() ([]tipos.Carta, error) {

@@ -50,9 +50,13 @@ services:
     networks:
       - game_network
     restart: unless-stopped
+    volumes:
+      - ../Blockchain/contracts:/app/Blockchain/contracts:ro
     environment:
-      - SERVER_ID=servidor1 # <-- A ETIQUETA QUE FALTAVA
+      - SERVER_ID=servidor1
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://host.docker.internal:8545
+      - CONTRACT_ADDRESS=0x3e18096650ed975103cacA34634A35aed2B93d13
 
   servidor2:
     build:
@@ -67,9 +71,13 @@ services:
     networks:
       - game_network
     restart: unless-stopped
+    volumes:
+      - ../Blockchain/contracts:/app/Blockchain/contracts:ro
     environment:
-      - SERVER_ID=servidor2 # <-- A ETIQUETA QUE FALTAVA
+      - SERVER_ID=servidor2
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://host.docker.internal:8545
+      - CONTRACT_ADDRESS=0x3e18096650ed975103cacA34634A35aed2B93d13
 
   servidor3:
     build:
@@ -84,9 +92,13 @@ services:
     networks:
       - game_network
     restart: unless-stopped
+    volumes:
+      - ../Blockchain/contracts:/app/Blockchain/contracts:ro
     environment:
-      - SERVER_ID=servidor3 # <-- A ETIQUETA QUE FALTAVA
+      - SERVER_ID=servidor3
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
+      - BLOCKCHAIN_RPC_URL=http://host.docker.internal:8545
+      - CONTRACT_ADDRESS=0x3e18096650ed975103cacA34634A35aed2B93d13
 
   # ==================== CLIENTES (OPCIONAL PARA TESTES) ====================
   cliente:

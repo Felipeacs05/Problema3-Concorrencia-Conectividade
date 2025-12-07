@@ -87,6 +87,12 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 	var serverAccount common.Address
 	var serverKey *keystore.Key
 
+	// Primeiro, tenta usar a conta padrão que está desbloqueada no Geth
+	// Esta é a conta usada em --unlock no docker-compose do Geth
+	serverAccount = common.HexToAddress("0xa4A8c25624097247Dce1Fa88E73EEf546E8667B9")
+	log.Printf("[BLOCKCHAIN] Usando conta do servidor (desbloqueada no Geth): %s", serverAccount.Hex())
+
+	// Opcionalmente, tenta carregar a chave privada do keystore para assinatura local
 	if keystorePath != "" && serverPassword != "" {
 		// Lista arquivos do keystore
 		files, err := ioutil.ReadDir(keystorePath)
@@ -101,6 +107,7 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 				if err == nil {
 					serverKey = key
 					serverAccount = key.Address
+					log.Printf("[BLOCKCHAIN] Chave privada carregada do keystore: %s", serverAccount.Hex())
 				}
 			}
 		}
@@ -377,18 +384,25 @@ func (m *Manager) AceitarPropostaTroca(jogador2 common.Address, propostaID *big.
 }
 
 // RegistrarPartida registra o resultado de uma partida na blockchain
+// O contrato espera: registrarPartida(address _jogador2, address _vencedor)
+// O jogador1 é implicitamente o msg.sender (conta do servidor)
 func (m *Manager) RegistrarPartida(jogador1, jogador2, vencedor common.Address) error {
-	// Prepara a chamada à função registrarPartida
-	data, err := m.contractABI.Pack("registrarPartida", jogador1, jogador2, vencedor)
+	// Prepara a chamada à função registrarPartida (só 2 argumentos: jogador2 e vencedor)
+	data, err := m.contractABI.Pack("registrarPartida", jogador2, vencedor)
 	if err != nil {
 		return fmt.Errorf("erro ao preparar chamada: %v", err)
 	}
+
+	log.Printf("[BLOCKCHAIN] Registrando partida: jogador2=%s, vencedor=%s (jogador1=%s é o servidor)", 
+		jogador2.Hex(), vencedor.Hex(), jogador1.Hex())
 
 	// Envia a transação usando a conta do servidor
 	tx, err := m.enviarTransacao(m.serverAccount, data, big.NewInt(0))
 	if err != nil {
 		return fmt.Errorf("erro ao enviar transação: %v", err)
 	}
+
+	log.Printf("[BLOCKCHAIN] Transação enviada: %s", tx.Hash().Hex())
 
 	// Aguarda confirmação
 	receipt, err := m.aguardarConfirmacao(tx.Hash())
@@ -397,9 +411,10 @@ func (m *Manager) RegistrarPartida(jogador1, jogador2, vencedor common.Address) 
 	}
 
 	if receipt.Status == 0 {
-		return fmt.Errorf("transação falhou")
+		return fmt.Errorf("transação falhou (status=0)")
 	}
 
+	log.Printf("[BLOCKCHAIN] ✓ Partida registrada com sucesso! Block: %d", receipt.BlockNumber.Uint64())
 	return nil
 }
 
@@ -489,16 +504,9 @@ func (m *Manager) enviarTransacao(from common.Address, data []byte, valor *big.I
 		return txAssinada, nil
 	}
 
-	// Para outras contas, usa personal_sendTransaction (requer que a conta esteja desbloqueada)
+	// Para outras contas, usa eth_sendTransaction (requer que a conta esteja desbloqueada no Geth via --unlock)
 	if m.rpcClient != nil {
-		// Desbloqueia a conta
-		var unlockResult bool
-		err := m.rpcClient.Call(&unlockResult, "personal_unlockAccount", from, m.serverPassword, 0)
-		if err != nil || !unlockResult {
-			return nil, fmt.Errorf("erro ao desbloquear conta: %v", err)
-		}
-
-		// Prepara parâmetros
+		// Prepara parâmetros para eth_sendTransaction
 		txParams := map[string]interface{}{
 			"from":     from.Hex(),
 			"to":       m.contractAddress.Hex(),
@@ -508,12 +516,14 @@ func (m *Manager) enviarTransacao(from common.Address, data []byte, valor *big.I
 			"gasPrice": fmt.Sprintf("0x%x", gasPrice),
 		}
 
-		// Envia via personal_sendTransaction
+		// Envia via eth_sendTransaction (a conta já deve estar desbloqueada no Geth)
 		var txHashStr string
-		err = m.rpcClient.Call(&txHashStr, "personal_sendTransaction", txParams, m.serverPassword)
+		err = m.rpcClient.Call(&txHashStr, "eth_sendTransaction", txParams)
 		if err != nil {
-			return nil, fmt.Errorf("erro ao enviar transação via RPC: %v", err)
+			return nil, fmt.Errorf("erro ao enviar transação via eth_sendTransaction: %v", err)
 		}
+
+		log.Printf("[BLOCKCHAIN] Transação enviada via eth_sendTransaction: %s", txHashStr)
 
 		txHash := common.HexToHash(txHashStr)
 		// Aguarda um pouco e tenta obter a transação
