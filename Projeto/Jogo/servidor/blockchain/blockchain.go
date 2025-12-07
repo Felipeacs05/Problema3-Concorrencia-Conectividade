@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"jogodistribuido/servidor/tipos"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -16,7 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"jogodistribuido/servidor/tipos"
 )
 
 const (
@@ -28,15 +29,15 @@ const (
 
 // Manager gerencia a interação com a blockchain
 type Manager struct {
-	client           *ethclient.Client
-	rpcClient        *rpc.Client
-	contractAddress  common.Address
-	contractABI      abi.ABI
-	serverAccount    common.Address
-	serverKey        *keystore.Key
-	serverPassword   string
-	keystorePath     string
-	gasLimit         uint64
+	client          *ethclient.Client
+	rpcClient       *rpc.Client
+	contractAddress common.Address
+	contractABI     abi.ABI
+	serverAccount   common.Address
+	serverKey       *keystore.Key
+	serverPassword  string
+	keystorePath    string
+	gasLimit        uint64
 }
 
 // NewManager cria um novo gerenciador de blockchain
@@ -65,15 +66,18 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 		"../../../Blockchain/contracts/GameEconomy.abi",
 		"/app/Blockchain/contracts/GameEconomy.abi", // Docker
 	}
-	
+
 	var abiBytes []byte
+	var abiPathUsed string
 	for _, abiPath := range abiPaths {
 		abiBytes, err = ioutil.ReadFile(abiPath)
 		if err == nil {
+			abiPathUsed = abiPath
+			log.Printf("[BLOCKCHAIN] ABI carregado de: %s", abiPath)
 			break
 		}
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler arquivo ABI (tentou: %v): %v", abiPaths, err)
 	}
@@ -83,34 +87,90 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 		return nil, fmt.Errorf("erro ao fazer parse do ABI: %v", err)
 	}
 
+	// Log de debug: verifica se registrarPartidaAdmin existe no ABI
+	if _, ok := parsedABI.Methods["registrarPartidaAdmin"]; ok {
+		log.Printf("[BLOCKCHAIN] ✓ Função registrarPartidaAdmin encontrada no ABI (carregado de: %s)", abiPathUsed)
+	} else {
+		log.Printf("[BLOCKCHAIN] ⚠ Função registrarPartidaAdmin NÃO encontrada no ABI (carregado de: %s)", abiPathUsed)
+	}
+
 	// Carrega a conta do servidor (para registrar partidas)
 	var serverAccount common.Address
 	var serverKey *keystore.Key
 
-	// Primeiro, tenta usar a conta padrão que está desbloqueada no Geth
-	// Esta é a conta usada em --unlock no docker-compose do Geth
-	serverAccount = common.HexToAddress("0xa4A8c25624097247Dce1Fa88E73EEf546E8667B9")
-	log.Printf("[BLOCKCHAIN] Usando conta do servidor (desbloqueada no Geth): %s", serverAccount.Hex())
-
-	// Opcionalmente, tenta carregar a chave privada do keystore para assinatura local
-	if keystorePath != "" && serverPassword != "" {
-		// Lista arquivos do keystore
-		files, err := ioutil.ReadDir(keystorePath)
-		if err == nil && len(files) > 0 {
-			// Usa o primeiro arquivo encontrado
-			keyFile := files[0].Name()
-			keyPath := keystorePath + "/" + keyFile
-
-			jsonBytes, err := ioutil.ReadFile(keyPath)
-			if err == nil {
-				key, err := keystore.DecryptKey(jsonBytes, serverPassword)
-				if err == nil {
-					serverKey = key
-					serverAccount = key.Address
-					log.Printf("[BLOCKCHAIN] Chave privada carregada do keystore: %s", serverAccount.Hex())
+	// CORREÇÃO: Detecta automaticamente o owner do contrato (não hardcode!)
+	// Lê a variável pública 'owner' do contrato
+	log.Printf("[BLOCKCHAIN] Detectando owner do contrato automaticamente (contrato: %s)...", contractAddress.Hex())
+	ownerData, err := parsedABI.Pack("owner")
+	if err != nil {
+		log.Printf("[BLOCKCHAIN] Erro ao preparar chamada para owner: %v", err)
+	} else {
+		msg := ethereum.CallMsg{
+			To:   &contractAddress,
+			Data: ownerData,
+		}
+		result, err := client.CallContract(context.Background(), msg, nil)
+		if err != nil {
+			log.Printf("[BLOCKCHAIN] Erro ao chamar owner do contrato: %v", err)
+			log.Printf("[BLOCKCHAIN] Verifique se o contrato está deployado e o endereço está correto")
+		} else {
+			var ownerAddr common.Address
+			err = parsedABI.UnpackIntoInterface(&ownerAddr, "owner", result)
+			if err != nil {
+				log.Printf("[BLOCKCHAIN] Erro ao desempacotar owner: %v", err)
+			} else {
+				if ownerAddr == (common.Address{}) {
+					log.Printf("[BLOCKCHAIN] ⚠ Owner retornado é zero - contrato pode não estar deployado ou endereço incorreto")
+				} else {
+					serverAccount = ownerAddr
+					log.Printf("[BLOCKCHAIN] ✓ Owner do contrato detectado automaticamente: %s", serverAccount.Hex())
 				}
 			}
 		}
+	}
+
+	// Se não conseguiu detectar o owner, tenta carregar do keystore
+	if serverAccount == (common.Address{}) {
+		if keystorePath != "" && serverPassword != "" {
+			// Lista arquivos do keystore
+			files, err := ioutil.ReadDir(keystorePath)
+			if err == nil && len(files) > 0 {
+				// Usa o primeiro arquivo encontrado
+				keyFile := files[0].Name()
+				keyPath := keystorePath + "/" + keyFile
+
+				jsonBytes, err := ioutil.ReadFile(keyPath)
+				if err == nil {
+					key, err := keystore.DecryptKey(jsonBytes, serverPassword)
+					if err == nil {
+						serverKey = key
+						serverAccount = key.Address
+						log.Printf("[BLOCKCHAIN] Conta do servidor carregada do keystore: %s", serverAccount.Hex())
+					}
+				}
+			}
+		}
+	}
+
+	// Se ainda não tem conta, loga aviso e tenta usar a primeira conta do Geth como fallback
+	if serverAccount == (common.Address{}) {
+		log.Printf("[BLOCKCHAIN] ⚠ Aviso: Não foi possível detectar conta do servidor automaticamente")
+		log.Printf("[BLOCKCHAIN] Tentando obter primeira conta do Geth como fallback...")
+
+		// Tenta obter a primeira conta do Geth
+		if rpcClient != nil {
+			var accounts []common.Address
+			err := rpcClient.Call(&accounts, "eth_accounts")
+			if err == nil && len(accounts) > 0 {
+				serverAccount = accounts[0]
+				log.Printf("[BLOCKCHAIN] ✓ Usando primeira conta do Geth como fallback: %s", serverAccount.Hex())
+			} else {
+				log.Printf("[BLOCKCHAIN] ⚠ Não foi possível obter contas do Geth")
+				log.Printf("[BLOCKCHAIN] Configure keystorePath e serverPassword ou garanta que o owner do contrato está desbloqueado")
+			}
+		}
+	} else {
+		log.Printf("[BLOCKCHAIN] ✓ Conta do servidor configurada: %s", serverAccount.Hex())
 	}
 
 	return &Manager{
@@ -151,8 +211,50 @@ func (m *Manager) ComprarPacote(jogadorAddress common.Address, valor *big.Int) (
 		return nil, fmt.Errorf("transação falhou")
 	}
 
-	// Lê o evento PacoteComprado para obter os IDs das cartas
-	// Por enquanto, retorna vazio - o servidor pode consultar o inventário depois
+	// Lê os eventos CartaCriada para obter os IDs das cartas
+	// É mais confiável ler CartaCriada (um evento por carta) do que PacoteComprado (array dinâmico)
+	eventSignature := m.contractABI.Events["CartaCriada"]
+	if eventSignature.ID == (common.Hash{}) {
+		return nil, fmt.Errorf("evento CartaCriada não encontrado no ABI")
+	}
+
+	var tokenIds []*big.Int
+	compradorEncontrado := false
+
+	for _, vLog := range receipt.Logs {
+		if vLog.Address != m.contractAddress {
+			continue
+		}
+
+		// Verifica se é o evento CartaCriada
+		// CartaCriada(uint256 indexed tokenId, address indexed proprietario, string nome, string raridade, uint256 valor)
+		if len(vLog.Topics) >= 3 && vLog.Topics[0] == eventSignature.ID {
+			// Topic[1] = tokenId (indexed)
+			// Topic[2] = proprietario (indexed)
+			tokenId := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			proprietario := common.BytesToAddress(vLog.Topics[2].Bytes())
+
+			// Verifica se o proprietário é o jogador que comprou
+			if proprietario == jogadorAddress {
+				compradorEncontrado = true
+				tokenIds = append(tokenIds, tokenId)
+			}
+		}
+	}
+
+	if len(tokenIds) > 0 {
+		log.Printf("[BLOCKCHAIN_DEBUG] ✓ Encontrados %d tokenIds do evento CartaCriada: %v", len(tokenIds), tokenIds)
+		return tokenIds, nil
+	}
+
+	if !compradorEncontrado {
+		log.Printf("[BLOCKCHAIN_DEBUG] ⚠ Nenhum evento CartaCriada encontrado para o comprador %s", jogadorAddress.Hex())
+		log.Printf("[BLOCKCHAIN_DEBUG] ⚠ Total de logs no recibo: %d", len(receipt.Logs))
+	}
+
+	// Fallback: se não conseguiu ler dos eventos, retorna vazio
+	// O sistema vai buscar o inventário completo depois (já implementado)
+	log.Printf("[BLOCKCHAIN_DEBUG] Usando fallback: sistema buscará inventário completo da blockchain")
 	return []*big.Int{}, nil
 }
 
@@ -384,19 +486,23 @@ func (m *Manager) AceitarPropostaTroca(jogador2 common.Address, propostaID *big.
 }
 
 // RegistrarPartida registra o resultado de uma partida na blockchain
-// O contrato espera: registrarPartida(address _jogador2, address _vencedor)
-// O jogador1 é implicitamente o msg.sender (conta do servidor)
+// Tenta usar registrarPartidaAdmin (onlyOwner) primeiro, se não existir usa registrarPartida
 func (m *Manager) RegistrarPartida(jogador1, jogador2, vencedor common.Address) error {
-	// Prepara a chamada à função registrarPartida (só 2 argumentos: jogador2 e vencedor)
-	data, err := m.contractABI.Pack("registrarPartida", jogador2, vencedor)
+	// Tenta usar registrarPartidaAdmin primeiro (onlyOwner - funciona igual às trocas)
+	data, err := m.contractABI.Pack("registrarPartidaAdmin", jogador1, jogador2, vencedor)
 	if err != nil {
-		return fmt.Errorf("erro ao preparar chamada: %v", err)
+		// Se a função não existir no ABI, tenta usar a função antiga registrarPartida
+		// (mas isso requer que jogador1 seja msg.sender, então não funciona com servidor)
+		// Por enquanto, apenas ignora silenciosamente - o contrato precisa ser atualizado
+		log.Printf("[BLOCKCHAIN] registrarPartidaAdmin não encontrado no ABI (contrato precisa ser atualizado)")
+		return fmt.Errorf("função registrarPartidaAdmin não encontrada no ABI")
 	}
 
-	log.Printf("[BLOCKCHAIN] Registrando partida: jogador2=%s, vencedor=%s (jogador1=%s é o servidor)", 
-		jogador2.Hex(), vencedor.Hex(), jogador1.Hex())
+	log.Printf("[BLOCKCHAIN] Registrando partida (admin): jogador1=%s, jogador2=%s, vencedor=%s",
+		jogador1.Hex(), jogador2.Hex(), vencedor.Hex())
+	log.Printf("[BLOCKCHAIN] Dados da transação (primeiros 20 bytes): %s", common.Bytes2Hex(data[:min(20, len(data))]))
 
-	// Envia a transação usando a conta do servidor
+	// Envia a transação usando a conta do servidor (que é o owner)
 	tx, err := m.enviarTransacao(m.serverAccount, data, big.NewInt(0))
 	if err != nil {
 		return fmt.Errorf("erro ao enviar transação: %v", err)
@@ -415,6 +521,14 @@ func (m *Manager) RegistrarPartida(jogador1, jogador2, vencedor common.Address) 
 	}
 
 	log.Printf("[BLOCKCHAIN] ✓ Partida registrada com sucesso! Block: %d", receipt.BlockNumber.Uint64())
+	log.Printf("[BLOCKCHAIN] DEBUG: Receipt tem %d logs (eventos)", len(receipt.Logs))
+	if len(receipt.Logs) == 0 {
+		log.Printf("[BLOCKCHAIN] ⚠ AVISO: Transação bem-sucedida mas nenhum evento foi emitido! O contrato pode não ter a função registrarPartidaAdmin")
+	} else {
+		for i, logEntry := range receipt.Logs {
+			log.Printf("[BLOCKCHAIN] DEBUG: Log[%d]: %d tópicos, endereço=%s", i, len(logEntry.Topics), logEntry.Address.Hex())
+		}
+	}
 	return nil
 }
 
@@ -489,22 +603,28 @@ func (m *Manager) enviarTransacao(from common.Address, data []byte, valor *big.I
 	// Cria transação
 	tx := types.NewTransaction(nonce, m.contractAddress, valor, gasToUse, gasPrice, data)
 
-	// Se for a conta do servidor, assina com a chave privada
-	if from == m.serverAccount && m.serverKey != nil {
-		txAssinada, err := types.SignTx(tx, types.NewEIP155Signer(chainID), m.serverKey.PrivateKey)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao assinar transação: %v", err)
-		}
+	// Se for a conta do servidor, tenta assinar com a chave privada primeiro
+	if from == m.serverAccount {
+		if m.serverKey != nil {
+			// Tem chave privada: assina localmente
+			txAssinada, err := types.SignTx(tx, types.NewEIP155Signer(chainID), m.serverKey.PrivateKey)
+			if err != nil {
+				return nil, fmt.Errorf("erro ao assinar transação: %v", err)
+			}
 
-		err = m.client.SendTransaction(context.Background(), txAssinada)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao enviar transação: %v", err)
-		}
+			err = m.client.SendTransaction(context.Background(), txAssinada)
+			if err != nil {
+				return nil, fmt.Errorf("erro ao enviar transação: %v", err)
+			}
 
-		return txAssinada, nil
+			return txAssinada, nil
+		} else {
+			// Não tem chave privada: tenta usar eth_sendTransaction (conta deve estar desbloqueada)
+			log.Printf("[BLOCKCHAIN] Conta do servidor sem chave privada, tentando eth_sendTransaction (conta deve estar desbloqueada no Geth)")
+		}
 	}
 
-	// Para outras contas, usa eth_sendTransaction (requer que a conta esteja desbloqueada no Geth via --unlock)
+	// Para outras contas ou servidor sem chave privada, usa eth_sendTransaction (requer que a conta esteja desbloqueada no Geth via --unlock)
 	if m.rpcClient != nil {
 		// Prepara parâmetros para eth_sendTransaction
 		txParams := map[string]interface{}{
@@ -520,6 +640,10 @@ func (m *Manager) enviarTransacao(from common.Address, data []byte, valor *big.I
 		var txHashStr string
 		err = m.rpcClient.Call(&txHashStr, "eth_sendTransaction", txParams)
 		if err != nil {
+			// Erro mais descritivo para "unknown account"
+			if strings.Contains(err.Error(), "unknown account") {
+				return nil, fmt.Errorf("conta %s não está desbloqueada no Geth. Configure --unlock no docker-compose ou forneça keystorePath e serverPassword", from.Hex())
+			}
 			return nil, fmt.Errorf("erro ao enviar transação via eth_sendTransaction: %v", err)
 		}
 
@@ -564,8 +688,14 @@ func (m *Manager) aguardarConfirmacao(txHash common.Hash) (*types.Receipt, error
 	}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // GetContractAddress retorna o endereço do contrato
 func (m *Manager) GetContractAddress() common.Address {
 	return m.contractAddress
 }
-

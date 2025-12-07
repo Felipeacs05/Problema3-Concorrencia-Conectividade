@@ -561,6 +561,37 @@ contract GameEconomy {
     }
     
     /**
+     * @dev Registra o resultado de uma partida pelo servidor (admin)
+     * BAREMA ITEM 7: PARTIDAS - Permite que o servidor registre partidas em nome dos jogadores
+     * Esta função é necessária porque o servidor não tem acesso às chaves privadas dos jogadores
+     * @param _jogador1 Endereço do primeiro jogador
+     * @param _jogador2 Endereço do segundo jogador
+     * @param _vencedor Endereço do vencedor (address(0) se empate)
+     */
+    function registrarPartidaAdmin(
+        address _jogador1,
+        address _jogador2,
+        address _vencedor
+    ) public onlyOwner {
+        require(_jogador1 != address(0), "Jogador1 invalido");
+        require(_jogador2 != address(0), "Jogador2 invalido");
+        require(_jogador1 != _jogador2, "Nao pode jogar consigo mesmo");
+        require(_vencedor == _jogador1 || _vencedor == _jogador2 || _vencedor == address(0), 
+                "Vencedor deve ser um dos jogadores ou empate");
+        
+        Partida memory novaPartida = Partida({
+            jogador1: _jogador1,
+            jogador2: _jogador2,
+            vencedor: _vencedor,
+            timestamp: block.timestamp
+        });
+        
+        partidas.push(novaPartida);
+        
+        emit PartidaRegistrada(_jogador1, _jogador2, _vencedor, block.timestamp);
+    }
+    
+    /**
      * @dev Retorna o número total de partidas registradas
      * @return Quantidade de partidas
      */

@@ -24,6 +24,7 @@ services:
       - ./data:/root/.ethereum
       - ./genesis.json:/genesis.json
       - ./scripts:/scripts
+      - ./password.txt:/root/.ethereum/password.txt
     
     command:
       - --datadir=/root/.ethereum
@@ -40,10 +41,10 @@ services:
       - --ws.api=eth,net,web3,personal,miner
       - --ws.origins="*"
       - --allow-insecure-unlock
-      - --unlock=0xa4A8c25624097247Dce1Fa88E73EEf546E8667B9
+      - --unlock=0x62Da9100c71456cBA8b8A04f638BE84281b804DA,0x62Da9100c71456cBA8b8A04f638BE84281b804DA
       - --password=/root/.ethereum/password.txt
       - --mine
-      - --miner.etherbase=0xa4A8c25624097247Dce1Fa88E73EEf546E8667B9
+      - --miner.etherbase=0x62Da9100c71456cBA8b8A04f638BE84281b804DA
     
     environment:
       # BAREMA ITEM 1: ARQUITETURA - Variável para conectar a outro nó (peer)

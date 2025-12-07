@@ -90,11 +90,13 @@ services:
     networks:
       - unified_network
     restart: unless-stopped
+    volumes:
+      - ./Blockchain/contracts:/app/Blockchain/contracts:ro
+      - ./contract-address.txt:/app/contract-address.txt:ro
     environment:
       - SERVER_ID=servidor1
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
       - BLOCKCHAIN_RPC_URL=http://geth:8545
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
       - KEYSTORE_PATH=/root/.ethereum/keystore
       - SERVER_PASSWORD=123456
 
@@ -112,11 +114,13 @@ services:
     networks:
       - unified_network
     restart: unless-stopped
+    volumes:
+      - ./Blockchain/contracts:/app/Blockchain/contracts:ro
+      - ./contract-address.txt:/app/contract-address.txt:ro
     environment:
       - SERVER_ID=servidor2
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
       - BLOCKCHAIN_RPC_URL=http://geth:8545
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
       - KEYSTORE_PATH=/root/.ethereum/keystore
       - SERVER_PASSWORD=123456
 
@@ -134,11 +138,13 @@ services:
     networks:
       - unified_network
     restart: unless-stopped
+    volumes:
+      - ./Blockchain/contracts:/app/Blockchain/contracts:ro
+      - ./contract-address.txt:/app/contract-address.txt:ro
     environment:
       - SERVER_ID=servidor3
       - PEERS=servidor1:8080,servidor2:8080,servidor3:8080
       - BLOCKCHAIN_RPC_URL=http://geth:8545
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
       - KEYSTORE_PATH=/root/.ethereum/keystore
       - SERVER_PASSWORD=123456
 

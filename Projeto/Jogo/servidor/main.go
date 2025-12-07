@@ -42,6 +42,38 @@ const (
 	JWT_EXPIRATION      = 24 * time.Hour                     // Tokens JWT expiram em 24 horas
 )
 
+// ==================== FUNÇÕES AUXILIARES ====================
+
+// lerContractAddressDeArquivo tenta ler o endereço do contrato do arquivo contract-address.txt
+// Isso permite que o endereço seja atualizado automaticamente após um novo deploy
+// sem precisar modificar variáveis de ambiente ou docker-compose
+func lerContractAddressDeArquivo() string {
+	// Lista de caminhos onde o arquivo pode estar
+	caminhos := []string{
+		"/app/contract-address.txt",            // Docker (montado como volume)
+		"/app/Blockchain/contract-address.txt", // Docker alternativo
+		"../contract-address.txt",              // Execução local (de servidor/)
+		"../../contract-address.txt",           // Execução local alternativo
+		"../Projeto/contract-address.txt",      // Outro caminho possível
+		"contract-address.txt",                 // Mesmo diretório
+	}
+
+	for _, caminho := range caminhos {
+		data, err := os.ReadFile(caminho)
+		if err == nil {
+			endereco := strings.TrimSpace(string(data))
+			// Valida se parece com um endereço Ethereum (0x + 40 chars hex)
+			if len(endereco) >= 42 && strings.HasPrefix(endereco, "0x") {
+				log.Printf("[BLOCKCHAIN] Endereço do contrato encontrado em: %s", caminho)
+				return endereco
+			}
+		}
+	}
+
+	log.Printf("[BLOCKCHAIN] Arquivo contract-address.txt não encontrado nos caminhos padrão")
+	return ""
+}
+
 // ==================== TIPOS ====================
 
 type Carta = protocolo.Carta
@@ -407,6 +439,14 @@ func novoServidor(endereco, broker string) *Servidor {
 	contractAddress := os.Getenv("CONTRACT_ADDRESS")
 	keystorePath := os.Getenv("KEYSTORE_PATH")
 	serverPassword := os.Getenv("SERVER_PASSWORD")
+
+	// Se CONTRACT_ADDRESS não estiver definida, tenta ler do arquivo contract-address.txt
+	if contractAddress == "" {
+		contractAddress = lerContractAddressDeArquivo()
+		if contractAddress != "" {
+			log.Printf("[BLOCKCHAIN] Endereço do contrato lido automaticamente do arquivo: %s", contractAddress)
+		}
+	}
 
 	if rpcURL != "" && contractAddress != "" {
 		log.Printf("Inicializando blockchain: RPC=%s, Contract=%s", rpcURL, contractAddress)
@@ -1363,67 +1403,28 @@ func (s *Servidor) encaminharEventoParaHost(sala *tipos.Sala, clienteID, eventTy
 
 // processarCompraPacote processa a compra de um pacote de cartas
 // Se for líder, retira do estoque local; senão, faz requisição ao líder
-// Se o cliente tem blockchain, busca inventário da blockchain
+// Se o cliente tem blockchain, busca inventário da blockchain (NÃO gera cartas falsas)
 func (s *Servidor) processarCompraPacote(clienteID string, sala *tipos.Sala) {
-	// Se não for o líder, faz requisição para o líder
-	souLider := s.ClusterManager.SouLider()
-	lider := s.ClusterManager.GetLider()
-
-	log.Printf("[COMPRAR_DEBUG] Processando compra para cliente %s, souLider: %v", clienteID, souLider)
-
-	cartas := make([]Carta, 0) // Inicializa como slice vazio, não nil
-
-	if souLider {
-		cartas = s.Store.FormarPacote(PACOTE_SIZE)
-		log.Printf("[COMPRAR_DEBUG] Líder retirou %d cartas do estoque", len(cartas))
-	} else {
-		// Faz requisição HTTP para o líder
-		dados := map[string]interface{}{
-			"cliente_id": clienteID,
-		}
-		jsonData, _ := json.Marshal(dados)
-		url := fmt.Sprintf("http://%s/estoque/comprar_pacote", lider)
-
-		// Cria requisição HTTP com autenticação JWT
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			log.Printf("Erro ao criar requisição para o líder: %v", err)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+seguranca.GenerateJWT(s.ServerID))
-
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("Erro ao requisitar pacote do líder: %v", err)
-			return
-		}
-		defer resp.Body.Close()
-
-		var resultado struct {
-			Pacote []Carta `json:"pacote"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&resultado); err != nil {
-			log.Printf("Erro ao decodificar resposta do líder: %v", err)
-			return
-		}
-
-		cartas = resultado.Pacote
-	}
-
 	// Adiciona cartas ao inventário do cliente
 	s.mutexClientes.RLock()
 	cliente := s.Clientes[clienteID]
 	s.mutexClientes.RUnlock()
 
-	// Se o cliente tem endereço blockchain, busca o inventário da blockchain em vez de usar cartas do estoque
+	log.Printf("[COMPRAR_DEBUG] Processando compra para cliente %s", clienteID)
+
+	cartas := make([]Carta, 0) // Inicializa como slice vazio, não nil
+
+	// CORREÇÃO: Se o cliente tem blockchain, NÃO gera cartas falsas - busca diretamente da blockchain
 	if cliente != nil && cliente.EnderecoBlockchain != "" && s.BlockchainManager != nil {
-		log.Printf("[COMPRAR_BLOCKCHAIN] Cliente comprou via blockchain, buscando inventário da blockchain...")
+		log.Printf("[COMPRAR_BLOCKCHAIN] Cliente tem blockchain, buscando inventário da blockchain (sem gerar cartas falsas)...")
 		addr := common.HexToAddress(cliente.EnderecoBlockchain)
+
+		// Aguarda um pouco para garantir que a transação foi confirmada
+		time.Sleep(2 * time.Second)
+
 		cartasBlockchain, err := s.BlockchainManager.ObterInventario(addr)
 		if err == nil && len(cartasBlockchain) > 0 {
-			log.Printf("[COMPRAR_BLOCKCHAIN] Inventário da blockchain obtido: %d cartas", len(cartasBlockchain))
+			log.Printf("[COMPRAR_BLOCKCHAIN] ✓ Inventário da blockchain obtido: %d cartas com IDs reais", len(cartasBlockchain))
 			cliente.Mutex.Lock()
 			cliente.Inventario = cartasBlockchain
 			cliente.Mutex.Unlock()
@@ -1433,18 +1434,64 @@ func (s *Servidor) processarCompraPacote(clienteID string, sala *tipos.Sala) {
 			if err != nil {
 				log.Printf("[COMPRAR_BLOCKCHAIN_AVISO] Erro ao buscar inventário da blockchain: %v", err)
 			} else {
-				log.Printf("[COMPRAR_BLOCKCHAIN_AVISO] Inventário da blockchain vazio, usando cartas do estoque")
+				log.Printf("[COMPRAR_BLOCKCHAIN_AVISO] Inventário da blockchain vazio, mas cliente já comprou - aguardando sincronização...")
 			}
-			// Fallback: usa cartas do estoque se não conseguir buscar da blockchain
+			// IMPORTANTE: Não retorna aqui! O cliente já comprou na blockchain, então ele está pronto
+			// Mesmo que não consigamos buscar o inventário agora, a partida deve continuar
+			// O inventário será sincronizado depois ou o cliente pode recarregar
+			// Usa lista vazia temporariamente - o cliente já tem as cartas na blockchain
+			cartas = make([]Carta, 0)
+		}
+	} else {
+		// Cliente NÃO tem blockchain, usa o método tradicional (estoque local)
+		souLider := s.ClusterManager.SouLider()
+		lider := s.ClusterManager.GetLider()
+
+		if souLider {
+			cartas = s.Store.FormarPacote(PACOTE_SIZE)
+			log.Printf("[COMPRAR_DEBUG] Líder retirou %d cartas do estoque", len(cartas))
+		} else {
+			// Faz requisição HTTP para o líder
+			dados := map[string]interface{}{
+				"cliente_id": clienteID,
+			}
+			jsonData, _ := json.Marshal(dados)
+			url := fmt.Sprintf("http://%s/estoque/comprar_pacote", lider)
+
+			// Cria requisição HTTP com autenticação JWT
+			req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+			if err != nil {
+				log.Printf("Erro ao criar requisição para o líder: %v", err)
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+seguranca.GenerateJWT(s.ServerID))
+
+			client := &http.Client{Timeout: 15 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Printf("Erro ao requisitar pacote do líder: %v", err)
+				return
+			}
+			defer resp.Body.Close()
+
+			var resultado struct {
+				Pacote []Carta `json:"pacote"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&resultado); err != nil {
+				log.Printf("Erro ao decodificar resposta do líder: %v", err)
+				return
+			}
+
+			cartas = resultado.Pacote
+		}
+
+		// Adiciona cartas ao inventário do cliente (método tradicional)
+		if cliente != nil {
 			cliente.Mutex.Lock()
 			cliente.Inventario = append(cliente.Inventario, cartas...)
 			cliente.Mutex.Unlock()
 		}
-	} else {
-		// Cliente não tem blockchain, usa cartas do estoque normalmente
-		cliente.Mutex.Lock()
-		cliente.Inventario = append(cliente.Inventario, cartas...)
-		cliente.Mutex.Unlock()
 	}
 
 	// Notifica cliente
@@ -1473,6 +1520,12 @@ func (s *Servidor) processarCompraPacote(clienteID string, sala *tipos.Sala) {
 	}
 
 	// CORREÇÃO DEADLOCK: Lógica diferenciada por tipo de partida
+	// Verifica se o cliente existe antes de marcar como pronto
+	if cliente == nil {
+		log.Printf("[COMPRAR_ERRO] Cliente %s não encontrado, não é possível marcar como pronto", clienteID)
+		return
+	}
+
 	sala.Mutex.Lock()
 	sala.Prontos[cliente.Nome] = true
 
@@ -2296,9 +2349,11 @@ func (s *Servidor) resolverJogada(sala *tipos.Sala) string {
 			go func() {
 				err := s.BlockchainManager.RegistrarPartida(addrJ1, addrJ2, addrVencedor)
 				if err != nil {
-					log.Printf("[BLOCKCHAIN_RODADA_ERRO] %v", err)
+					// Ignora erro silenciosamente - o jogo continua normalmente
+					// O registro na blockchain é opcional e não deve quebrar o jogo
+					log.Printf("[BLOCKCHAIN_RODADA] ⚠ Registro na blockchain falhou (ignorado): %v", err)
 				} else {
-					log.Printf("[BLOCKCHAIN_RODADA] ✅ Registrado com sucesso!")
+					log.Printf("[BLOCKCHAIN_RODADA] ✅ Partida registrada com sucesso na blockchain!")
 				}
 			}()
 		}
