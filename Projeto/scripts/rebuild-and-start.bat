@@ -140,3 +140,4 @@ echo Para parar tudo, execute: stop-all.bat
 echo.
 pause
 
+

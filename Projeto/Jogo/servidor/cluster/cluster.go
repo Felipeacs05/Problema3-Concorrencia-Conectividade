@@ -16,16 +16,17 @@ import (
 )
 
 const (
-	ELEICAO_TIMEOUT     = 30 * time.Second // Aumentado para 30 segundos
-	HEARTBEAT_INTERVALO = 5 * time.Second  // Aumentado para 5 segundos
+	ELEICAO_TIMEOUT     = 30 * time.Second // Timeout para eleições de líder (aumentado para evitar eleições prematuras)
+	HEARTBEAT_INTERVALO = 5 * time.Second  // Intervalo entre heartbeats (aumentado para reduzir tráfego)
 )
 
+// ServidorInterface define operações básicas que o servidor precisa expor para o cluster
 type ServidorInterface interface {
-	GetMeuEndereco() string
+	GetMeuEndereco() string // Retorna o endereço HTTP deste servidor
 }
 
 // ClusterManagerInterface define as operações que o manager do cluster expõe
-// para outras partes do sistema, como a API.
+// para outras partes do sistema, como a API
 type ClusterManagerInterface interface {
 	GetServidores() map[string]*tipos.InfoServidor
 	GetServidoresAtivos(meuEndereco string) []string
@@ -38,16 +39,17 @@ type ClusterManagerInterface interface {
 	Run()
 }
 
-// Manager gere o estado do cluster, descoberta e eleições.
+// Manager gerencia o estado do cluster, descoberta de servidores e eleições de líder
+// Implementa o algoritmo Raft simplificado para eleição de líder
 type Manager struct {
 	servidor ServidorInterface
 	mutex    sync.RWMutex
-	// Campos relacionados com o cluster que estavam no Servidor
-	Servidores      map[string]*tipos.InfoServidor
-	souLider        bool
-	LiderAtual      string
-	TermoAtual      int64
-	UltimoHeartbeat time.Time
+	// Campos relacionados com o cluster
+	Servidores      map[string]*tipos.InfoServidor // Mapa de endereço -> informações do servidor
+	souLider        bool                           // Indica se este servidor é o líder atual
+	LiderAtual      string                         // Endereço do servidor líder atual
+	TermoAtual      int64                          // Número do termo atual (incrementa a cada eleição)
+	UltimoHeartbeat time.Time                      // Última vez que recebeu heartbeat do líder
 }
 
 func NewManager(s ServidorInterface) *Manager {
@@ -57,13 +59,15 @@ func NewManager(s ServidorInterface) *Manager {
 	}
 }
 
+// Run inicia os processos de gerenciamento do cluster em goroutines separadas
 func (m *Manager) Run() {
-	go m.descobrirServidores()
-	go m.enviarHeartbeats()
-	go m.processoEleicao()
+	go m.descobrirServidores() // Descobre outros servidores no cluster
+	go m.enviarHeartbeats()   // Envia heartbeats periódicos
+	go m.processoEleicao()    // Monitora necessidade de eleições
 }
 
-// descobrirServidores tenta se conectar a peers conhecidos para se registrar.
+// descobrirServidores tenta se conectar a peers conhecidos para se registrar
+// Lê a variável de ambiente PEERS para encontrar outros servidores
 func (m *Manager) descobrirServidores() {
 	peersStr := os.Getenv("PEERS")
 	if peersStr == "" {
@@ -121,7 +125,8 @@ func (m *Manager) registrarComPeer(peerAddr string) {
 	log.Printf("Não foi possível registrar com o peer %s após várias tentativas.", peerAddr)
 }
 
-// enviarHeartbeats envia pings para outros servidores para mantê-los informados.
+// enviarHeartbeats envia pings periódicos para outros servidores
+// Mantém os servidores informados sobre a saúde deste nó e, se for líder, informa sua liderança
 func (m *Manager) enviarHeartbeats() {
 	ticker := time.NewTicker(HEARTBEAT_INTERVALO)
 	defer ticker.Stop()
@@ -156,7 +161,8 @@ func (m *Manager) enviarHeartbeats() {
 	}
 }
 
-// processoEleicao verifica a necessidade de uma nova eleição.
+// processoEleicao monitora continuamente a necessidade de iniciar uma nova eleição
+// Se o líder não enviar heartbeat por muito tempo, inicia uma eleição
 func (m *Manager) processoEleicao() {
 	// Atraso inicial aleatório para evitar eleições simultâneas no início
 	time.Sleep(time.Duration(5+rand.Intn(5)) * time.Second)
@@ -256,6 +262,8 @@ func (m *Manager) iniciarEleicao() {
 	}
 }
 
+// tornarLider declara este servidor como líder e notifica todos os outros servidores
+// Atualiza o estado interno e envia notificações via HTTP
 func (m *Manager) tornarLider() {
 	m.mutex.Lock()
 	m.souLider = true

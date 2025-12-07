@@ -32,15 +32,14 @@ import (
 	"github.com/google/uuid"
 )
 
-//Servidor ta ok :))
 // ==================== CONFIGURAÇÃO E CONSTANTES ====================
 
 const (
-	ELEICAO_TIMEOUT     = 30 * time.Second // Aumentado para 30 segundos
-	HEARTBEAT_INTERVALO = 5 * time.Second  // Aumentado para 5 segundos
-	PACOTE_SIZE         = 5
+	ELEICAO_TIMEOUT     = 30 * time.Second                   // Timeout para eleições de líder (aumentado para evitar eleições prematuras)
+	HEARTBEAT_INTERVALO = 5 * time.Second                    // Intervalo entre heartbeats (aumentado para reduzir tráfego)
+	PACOTE_SIZE         = 5                                  // Número de cartas em cada pacote comprado
 	JWT_SECRET          = "jogo_distribuido_secret_key_2025" // Chave secreta compartilhada entre servidores
-	JWT_EXPIRATION      = 24 * time.Hour                     // Tokens expiram em 24 horas
+	JWT_EXPIRATION      = 24 * time.Hour                     // Tokens JWT expiram em 24 horas
 )
 
 // ==================== TIPOS ====================
@@ -48,27 +47,28 @@ const (
 type Carta = protocolo.Carta
 
 // Servidor é a estrutura principal que gerencia o servidor distribuído
+// Coordena comunicação MQTT, cluster, partidas e blockchain
 type Servidor struct {
-	ServerID          string
-	MeuEndereco       string
-	MeuEnderecoHTTP   string
-	BrokerMQTT        string
-	MQTTClient        mqtt.Client
-	ClusterManager    cluster.ClusterManagerInterface
-	Store             store.StoreInterface
-	GameManager       game.GameManagerInterface
-	MQTTManager       mqttManager.MQTTManagerInterface
-	BlockchainManager *blockchain.Manager // Gerenciador de blockchain (opcional)
+	ServerID          string                           // ID único deste servidor
+	MeuEndereco       string                           // Endereço deste servidor (ex: "servidor1:8080")
+	MeuEnderecoHTTP   string                           // Endereço HTTP completo (ex: "http://servidor1:8080")
+	BrokerMQTT        string                           // Endereço do broker MQTT
+	MQTTClient        mqtt.Client                      // Cliente MQTT para comunicação pub/sub
+	ClusterManager    cluster.ClusterManagerInterface  // Gerenciador do cluster de servidores
+	Store             store.StoreInterface             // Gerenciador do estoque de cartas
+	GameManager       game.GameManagerInterface        // Gerenciador de lógica de jogo
+	MQTTManager       mqttManager.MQTTManagerInterface // Gerenciador de operações MQTT
+	BlockchainManager *blockchain.Manager              // Gerenciador de blockchain (opcional)
 
 	// Gerenciamento de Partidas
-	Clientes        map[string]*tipos.Cliente // clienteID -> Cliente
-	mutexClientes   sync.RWMutex
-	Salas           map[string]*tipos.Sala // salaID -> Sala
-	mutexSalas      sync.RWMutex
-	FilaDeEspera    []*tipos.Cliente
-	mutexFila       sync.Mutex
-	ComandosPartida map[string]chan protocolo.Comando
-	mutexComandos   sync.Mutex
+	Clientes        map[string]*tipos.Cliente         // Mapa de clientes conectados (clienteID -> Cliente)
+	mutexClientes   sync.RWMutex                      // Mutex para proteger acesso concorrente aos clientes
+	Salas           map[string]*tipos.Sala            // Mapa de salas ativas (salaID -> Sala)
+	mutexSalas      sync.RWMutex                      // Mutex para proteger acesso concorrente às salas
+	FilaDeEspera    []*tipos.Cliente                  // Fila de jogadores aguardando matchmaking
+	mutexFila       sync.Mutex                        // Mutex para proteger a fila de espera
+	ComandosPartida map[string]chan protocolo.Comando // Canais de comandos por sala (salaID -> canal)
+	mutexComandos   sync.Mutex                        // Mutex para proteger o mapa de comandos
 }
 
 // ==================== INICIALIZAÇÃO ====================
@@ -79,18 +79,23 @@ var (
 	servidoresIniciais = flag.String("peers", "", "Lista de peers separados por vírgula")
 )
 
+// main é o ponto de entrada do programa
+// Lê flags de linha de comando e inicia o servidor
 func main() {
 	flag.Parse()
 	servidor := novoServidor(*meuEndereco, *brokerMQTT)
 	servidor.Run()
 }
 
+// Run inicia todos os componentes do servidor e mantém o programa rodando
+// Inicia conexão MQTT, cluster manager, matchmaking e API REST
 func (s *Servidor) Run() {
-	// Inicializa gerador aleatório
+	// Inicializa gerador aleatório para operações que precisam de aleatoriedade
 	rand.Seed(time.Now().UnixNano())
 
 	log.Printf("Iniciando servidor em %s | Broker MQTT: %s", s.MeuEndereco, s.BrokerMQTT)
 
+	// Conecta ao broker MQTT (obrigatório para funcionamento)
 	if err := s.conectarMQTT(); err != nil {
 		log.Fatalf("Erro fatal ao conectar ao MQTT: %v", err)
 	}
@@ -98,17 +103,20 @@ func (s *Servidor) Run() {
 	// Inicia processos concorrentes
 	// O ClusterManager é iniciado primeiro para que a descoberta comece imediatamente
 	s.ClusterManager.Run()
-	go s.tentarMatchmakingGlobalPeriodicamente() // Inicia a busca proativa
+	go s.tentarMatchmakingGlobalPeriodicamente() // Inicia a busca proativa de oponentes
 
 	// A API Server agora recebe o servidor e o cluster manager
 	apiServer := api.NewServer(s.MeuEndereco, s, s.ClusterManager)
 	go apiServer.Run()
 
 	log.Println("Servidor pronto e operacional")
-	select {} // Mantém o programa rodando
+	select {} // Mantém o programa rodando indefinidamente
 }
 
-// Interface methods for managers
+// ==================== MÉTODOS DE INTERFACE ====================
+// Estes métodos implementam interfaces necessárias para os managers
+
+// GetClientes retorna o mapa de clientes conectados
 func (s *Servidor) GetClientes() map[string]*tipos.Cliente {
 	return s.Clientes
 }
@@ -420,7 +428,9 @@ func novoServidor(endereco, broker string) *Servidor {
 }
 
 // ==================== MQTT ====================
+// Funções para gerenciar conexão e comunicação via MQTT
 
+// conectarMQTT estabelece conexão com o broker MQTT e subscreve aos tópicos necessários
 func (s *Servidor) conectarMQTT() error {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(s.BrokerMQTT)
@@ -441,7 +451,8 @@ func (s *Servidor) conectarMQTT() error {
 	return nil
 }
 
-// subscreverTopicos centraliza as subscrições MQTT.
+// subscreverTopicos centraliza as subscrições MQTT
+// Subscreve aos tópicos necessários para receber mensagens dos clientes
 func (s *Servidor) subscreverTopicos() {
 	// Inscrição para responder a pedidos de informação dos clientes
 	infoTopic := fmt.Sprintf("servidores/%s/info_req/+", s.ServerID)
@@ -455,7 +466,8 @@ func (s *Servidor) subscreverTopicos() {
 	log.Println("Subscreveu aos tópicos MQTT essenciais")
 }
 
-// handleInfoRequest processa um pedido de informação de um cliente e responde.
+// handleInfoRequest processa um pedido de informação de um cliente e responde
+// Usado para descoberta de servidores pelos clientes
 func (s *Servidor) handleInfoRequest(client mqtt.Client, msg mqtt.Message) {
 	// O tópico tem o formato: servidores/{serverID}/info_req/{clientID}
 	parts := strings.Split(msg.Topic(), "/")
@@ -839,7 +851,10 @@ func min(a, b int) int {
 }
 
 // ==================== MATCHMAKING E LÓGICA DE JOGO ====================
+// Funções para encontrar oponentes e gerenciar partidas
 
+// tentarMatchmakingGlobalPeriodicamente busca oponentes em todos os servidores periodicamente
+// Executa em loop, tentando encontrar oponentes para jogadores na fila local
 func (s *Servidor) tentarMatchmakingGlobalPeriodicamente() {
 	// Aguarda um pouco no início para a rede de servidores se estabilizar
 	time.Sleep(10 * time.Second)
@@ -873,6 +888,8 @@ func (s *Servidor) tentarMatchmakingGlobalPeriodicamente() {
 	}
 }
 
+// entrarFila adiciona um cliente à fila de espera para matchmaking
+// Primeiro tenta encontrar oponente local, se não encontrar, adiciona à fila
 func (s *Servidor) entrarFila(cliente *tipos.Cliente) {
 	s.mutexFila.Lock()
 	// Tenta encontrar oponente na fila local primeiro
@@ -900,7 +917,8 @@ func (s *Servidor) entrarFila(cliente *tipos.Cliente) {
 	// O go s.tentarMatchmakingGlobalPeriodicamente() no 'Run' cuidará disso
 }
 
-// gerenciarBuscaGlobalPersistente tenta encontrar um oponente global periodicamente.
+// gerenciarBuscaGlobalPersistente tenta encontrar um oponente global periodicamente
+// Executa em goroutine separada para um cliente específico até encontrar oponente ou ser cancelado
 func (s *Servidor) gerenciarBuscaGlobalPersistente(cliente *tipos.Cliente) {
 	ticker := time.NewTicker(5 * time.Second) // Tenta a cada 5 segundos
 	defer ticker.Stop()
@@ -951,7 +969,8 @@ func (s *Servidor) gerenciarBuscaGlobalPersistente(cliente *tipos.Cliente) {
 	}
 }
 
-// tentarMatchmakingGlobalAgora faz UMA tentativa de encontrar um oponente global.
+// tentarMatchmakingGlobalAgora faz UMA tentativa de encontrar um oponente global
+// Consulta outros servidores ativos em ordem aleatória
 func (s *Servidor) tentarMatchmakingGlobalAgora(cliente *tipos.Cliente) bool {
 	// Busca oponente em outros servidores ATIVOS
 	servidores := s.ClusterManager.GetServidores()
@@ -982,7 +1001,8 @@ func (s *Servidor) tentarMatchmakingGlobalAgora(cliente *tipos.Cliente) bool {
 	return false
 }
 
-// realizarSolicitacaoMatchmaking envia uma requisição de oponente para um servidor específico.
+// realizarSolicitacaoMatchmaking envia uma requisição de oponente para um servidor específico
+// Retorna true se encontrou oponente, false caso contrário
 func (s *Servidor) realizarSolicitacaoMatchmaking(addr string, cliente *tipos.Cliente) bool {
 	log.Printf("[MATCHMAKING-TX] Enviando solicitação para %s", addr)
 	reqBody, _ := json.Marshal(map[string]string{
@@ -1106,6 +1126,9 @@ func (s *Servidor) criarSalaComoSombra(jogadorLocal *tipos.Cliente, salaID strin
 // Em: servidor/main.go
 // SUBSTITUA a função 'criarSala' (Etapa 1) por esta:
 
+// criarSala cria uma nova sala de jogo entre dois jogadores
+// j1 é o jogador local, j2 pode ser local ou remoto
+// sombraAddr é o endereço do servidor shadow (vazio se partida local)
 func (s *Servidor) criarSala(j1 *tipos.Cliente, j2 *tipos.Cliente, sombraAddr string) string {
 	salaID := uuid.New().String()
 
@@ -1338,6 +1361,9 @@ func (s *Servidor) encaminharEventoParaHost(sala *tipos.Sala, clienteID, eventTy
 	}
 }
 
+// processarCompraPacote processa a compra de um pacote de cartas
+// Se for líder, retira do estoque local; senão, faz requisição ao líder
+// Se o cliente tem blockchain, busca inventário da blockchain
 func (s *Servidor) processarCompraPacote(clienteID string, sala *tipos.Sala) {
 	// Se não for o líder, faz requisição para o líder
 	souLider := s.ClusterManager.SouLider()

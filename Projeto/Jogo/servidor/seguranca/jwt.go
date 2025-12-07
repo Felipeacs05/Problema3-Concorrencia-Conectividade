@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	JWT_SECRET     = "jogo_distribuido_secret_key_2025"
-	JWT_EXPIRATION = 24 * time.Hour
+	JWT_SECRET     = "jogo_distribuido_secret_key_2025" // Chave secreta compartilhada entre servidores
+	JWT_EXPIRATION = 24 * time.Hour                     // Tempo de expiração dos tokens JWT
 )
 
 // GenerateJWT gera um token JWT para autenticação entre servidores
+// O token contém o ID do servidor e informações de expiração
 func GenerateJWT(serverID string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 
@@ -34,7 +35,8 @@ func GenerateJWT(serverID string) string {
 	return message + "." + signature
 }
 
-// ValidateJWT valida um token JWT
+// ValidateJWT valida um token JWT e retorna o serverID se válido
+// Verifica formato, assinatura e expiração do token
 func ValidateJWT(token string) (string, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -74,26 +76,31 @@ func ValidateJWT(token string) (string, error) {
 	return serverID, nil
 }
 
-// GenerateHMAC gera uma assinatura HMAC-SHA256
+// GenerateHMAC gera uma assinatura HMAC-SHA256 de uma mensagem
+// Usado para assinar tokens JWT e eventos de jogo
 func GenerateHMAC(message, secret string) string {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(message))
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
-// SignEvent assina um evento de jogo
+// SignEvent assina um evento de jogo com HMAC
+// A assinatura garante que o evento não foi alterado após ser criado
 func SignEvent(event *tipos.GameEvent) {
 	data := fmt.Sprintf("%d:%s:%s:%s", event.EventSeq, event.MatchID, event.EventType, event.PlayerID)
 	event.Signature = GenerateHMAC(data, JWT_SECRET)
 }
 
-// VerifyEventSignature verifica a assinatura de um evento
+// VerifyEventSignature verifica se a assinatura de um evento é válida
+// Retorna true se a assinatura confere, false caso contrário
 func VerifyEventSignature(event *tipos.GameEvent) bool {
 	data := fmt.Sprintf("%d:%s:%s:%s", event.EventSeq, event.MatchID, event.EventType, event.PlayerID)
 	expectedSig := GenerateHMAC(data, JWT_SECRET)
 	return event.Signature == expectedSig
 }
 
+// MustJSON converte um valor para JSON, ignorando erros
+// Útil para casos onde sabemos que a conversão sempre será bem-sucedida
 func MustJSON(v interface{}) []byte {
 	b, _ := json.Marshal(v)
 	return b
