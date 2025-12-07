@@ -356,12 +356,12 @@ func (s *Server) handleSolicitarOponente(c *gin.Context) {
 		return
 	}
 
-	// Tenta encontrar um oponente na fila local
 	oponente := s.servidor.RemoverPrimeiroDaFila()
 
 	if oponente != nil {
 		// Oponente encontrado!
-		log.Printf("[MATCHMAKING_RX] Oponente '%s' encontrado localmente para solicitante '%s' de %s", oponente.Nome, req.SolicitanteNome, req.ServidorOrigem)
+		log.Printf("[MATCHMAKING_RX] Oponente '%s' encontrado localmente para solicitante '%s' de %s",
+			oponente.Nome, req.SolicitanteNome, req.ServidorOrigem)
 
 		// Cria um objeto Cliente para o solicitante remoto
 		solicitante := &tipos.Cliente{
@@ -376,7 +376,7 @@ func (s *Server) handleSolicitarOponente(c *gin.Context) {
 			"partida_encontrada": true,
 			"sala_id":            salaID,                      // <-- CORREÇÃO: Envia o ID da sala
 			"servidor_host":      s.servidor.GetMeuEndereco(), // <-- CORREÇÃO: Informa quem é o Host
-			"oponente_nome":      oponente.Nome,               // Retorna o nome do jogador local para o solicitante
+			"oponente_nome":      oponente.Nome,
 			"oponente_id":        oponente.ID,
 		})
 		return

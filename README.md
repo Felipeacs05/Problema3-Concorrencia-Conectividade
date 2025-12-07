@@ -58,86 +58,47 @@ Antes de começar, certifique-se de ter instalado:
 
 ```cmd
 REM 1. Navegue até a pasta do projeto
-cd "C:\Users\bluti\OneDrive\Desktop\UEFS\5 Semestre\MI - Concorrência e Conectividade\Problema3-Concorrencia-Conectividade\Projeto"
+cd "C:\Program Files\Pbl-Redes\Problema3-Concorrencia-Conectividade\Projeto"
 
-REM 2. Cria diretório de dados
-mkdir data
+REM 2. Execute os comandos na sequência:
+scripts\setup-blockchain.bat
+scripts\setup-game.bat
+scripts\start-all.bat
+scripts\criar-conta-jogador.bat
+Blockchain\scripts\fund-account.bat <endereco_da_conta>
+scripts\run-cliente.bat
 
-REM 3. Inicializa blockchain com genesis.json
-docker-compose run --rm geth --datadir /root/.ethereum init /genesis.json
-
-REM 4. Cria conta (use o script para evitar problemas de senha)
-cd scripts
-criar-conta-simples.bat
-REM Ou use: criar-conta.bat (para escolher sua própria senha)
-cd ..
-
-REM 5. Inicia o nó Geth em background
-docker-compose up -d geth
-
-REM 6. Aguarda alguns segundos para o nó inicializar
-timeout /t 10 /nobreak
-
-REM 7. Verifica se está funcionando
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
-
-REM 8. Verifica se está minerando
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
-
-REM 9. Se não estiver minerando, inicia manualmente
-docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
-
-REM 10. Aguarda 20 segundos e verifica saldo
-timeout /t 20 /nobreak
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
-
-REM 11. Compila o cliente Go
-cd cliente
-go mod download
-go build -o jogo-cartas.exe main.go
-
-REM 12. Executa o cliente
-jogo-cartas.exe
+REM 3. Quando finalizar, pare todos os serviços:
+scripts\stop-all.bat
 ```
+
+**Nota:** Substitua `<endereco_da_conta>` pelo endereço da conta criada no passo `criar-conta-jogador.bat`.
 
 ### Outras Vezes (Uso Diário)
 
 ```cmd
 REM 1. Navegue até a pasta do projeto
-cd "C:\Users\bluti\OneDrive\Desktop\UEFS\5 Semestre\MI - Concorrência e Conectividade\Problema3-Concorrencia-Conectividade\Projeto"
+cd "C:\Program Files\Pbl-Redes\Problema3-Concorrencia-Conectividade\Projeto"
 
-REM 2. Inicia o nó Geth (se não estiver rodando)
-docker-compose up -d geth
+REM 2. Execute apenas:
+scripts\start-all.bat
+scripts\run-cliente.bat
 
-REM 3. Verifica se está rodando
-docker ps
-
-REM 4. Se precisar verificar mineração
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
-
-REM 5. Se precisar iniciar mineração
-docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
-
-REM 6. Executa o cliente (se já compilado)
-cd cliente
-jogo-cartas.exe
-
-REM Ou recompila se necessário:
-go build -o jogo-cartas.exe main.go
-jogo-cartas.exe
+REM 3. Quando finalizar:
+scripts\stop-all.bat
 ```
 
 ### Comandos Úteis (Windows)
 
 ```cmd
-REM Ver logs do Geth
-docker-compose logs -f geth
+REM Ver logs do servidor
+scripts\logs-servidores.bat
 
-REM Parar o nó
-docker-compose down
+REM Ver eventos/transferências do contrato
+Blockchain\scripts\view-events.bat <endereco_do_contrato>
 
-REM Reiniciar o nó
-docker-compose restart geth
+REM Parar todos os serviços
+scripts\stop-all.bat
 
 REM Acessar console do Geth
 docker exec -it geth-node geth attach http://localhost:8545
@@ -162,45 +123,19 @@ docker exec geth-node geth attach http://localhost:8545 --exec "eth.accounts"
 # 1. Navegue até a pasta do projeto
 cd ~/Problema3-Concorrencia-Conectividade/Projeto/
 
-# 2. Cria diretório de dados
-mkdir -p data
+# 2. Execute os comandos na sequência:
+./scripts/setup-blockchain.sh
+./scripts/setup-game.sh
+./scripts/start-all.sh
+./scripts/criar-conta-jogador.sh
+./Blockchain/scripts/transfer-eth.sh <endereco_da_conta>
+./scripts/run-cliente.sh
 
-# 3. Inicializa blockchain com genesis.json
-docker-compose run --rm geth --datadir /root/.ethereum init /genesis.json
-
-# 4. Cria conta (senha será solicitada)
-docker-compose run --rm geth --datadir /root/.ethereum account new
-# Digite uma senha quando solicitado
-# ANOTE O ENDEREÇO RETORNADO!
-
-# 5. Inicia o nó Geth em background
-docker-compose up -d geth
-
-# 6. Aguarda alguns segundos para o nó inicializar
-sleep 10
-
-# 7. Verifica se está funcionando
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.blockNumber"
-
-# 8. Verifica se está minerando
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
-
-# 9. Se não estiver minerando, inicia manualmente
-docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
-
-# 10. Aguarda 20 segundos e verifica saldo
-sleep 20
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.getBalance(eth.accounts[0])"
-
-# 11. Compila o cliente Go
-cd cliente/
-go mod download
-go build -o jogo-cartas main.go
-chmod +x jogo-cartas
-
-# 12. Executa o cliente
-./jogo-cartas
+# 3. Quando finalizar, pare todos os serviços:
+./scripts/stop-all.sh
 ```
+
+**Nota:** Substitua `<endereco_da_conta>` pelo endereço da conta criada no passo `criar-conta-jogador.sh`.
 
 ### Outras Vezes (Uso Diário)
 
@@ -208,38 +143,25 @@ chmod +x jogo-cartas
 # 1. Navegue até a pasta do projeto
 cd ~/Problema3-Concorrencia-Conectividade/Projeto/
 
-# 2. Inicia o nó Geth (se não estiver rodando)
-docker-compose up -d geth
+# 2. Execute apenas:
+./scripts/start-all.sh
+./scripts/run-cliente.sh
 
-# 3. Verifica se está rodando
-docker ps
-
-# 4. Se precisar verificar mineração
-docker exec geth-node geth attach http://localhost:8545 --exec "eth.mining"
-
-# 5. Se precisar iniciar mineração
-docker exec geth-node geth attach http://localhost:8545 --exec "miner.start(1)"
-
-# 6. Executa o cliente (se já compilado)
-cd cliente/
-./jogo-cartas
-
-# Ou recompila se necessário:
-go build -o jogo-cartas main.go
-./jogo-cartas
+# 3. Quando finalizar:
+./scripts/stop-all.sh
 ```
 
 ### Comandos Úteis (Linux)
 
 ```bash
-# Ver logs do Geth
-docker-compose logs -f geth
+# Ver logs do servidor
+./scripts/logs-servidores.sh
 
-# Parar o nó
-docker-compose down
+# Ver eventos/transferências do contrato
+./Blockchain/scripts/view-events.sh <endereco_do_contrato>
 
-# Reiniciar o nó
-docker-compose restart geth
+# Parar todos os serviços
+./scripts/stop-all.sh
 
 # Acessar console do Geth
 docker exec -it geth-node geth attach http://localhost:8545
