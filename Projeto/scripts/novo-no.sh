@@ -45,7 +45,8 @@ fi
 # Aguarda o nó 1 estar pronto
 echo "Aguardando nó 1 estar pronto..."
 for i in {1..30}; do
-    if docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >/dev/null 2>&1; then
+    # CORREÇÃO 1: Usa IPC em vez de HTTP para garantir acesso a APIs
+    if docker exec geth-node geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc >/dev/null 2>&1; then
         break
     fi
     if [ $i -eq 30 ]; then
@@ -64,8 +65,8 @@ if docker ps | grep -q "geth-peer"; then
     echo
     if [[ $REPLY =~ ^[Ss]$ ]]; then
         echo "Parando nó 2 existente..."
-        docker stop geth-peer 2>/dev/null || true
-        docker rm geth-peer 2>/dev/null || true
+        cd "$BLOCKCHAIN_DIR"
+        $DOCKER_COMPOSE -f docker-compose-peer.yml down 2>/dev/null || true
     else
         echo "Operação cancelada."
         exit 0
@@ -139,16 +140,22 @@ echo ""
 
 # Obtém o enode do nó 1
 echo "[6/8] Obtendo enode do nó 1..."
-ENODE=$(docker exec geth-node geth attach --exec "admin.nodeInfo.enode" http://localhost:8545 2>/dev/null | tr -d '"' | tr -d ' ')
+# CORREÇÃO 1: Usa IPC aqui também para ter acesso ao admin.nodeInfo
+ENODE=$(docker exec geth-node geth attach --exec "admin.nodeInfo.enode" /root/.ethereum/geth.ipc 2>/dev/null | tr -d '"' | tr -d ' ')
+
 if [ -z "$ENODE" ]; then
-    echo "ERRO: Falha ao obter enode do nó 1"
+    echo "ERRO: Falha ao obter enode do nó 1 (Retorno vazio)"
+    exit 1
+fi
+
+# Verifica se o retorno parece um erro de JS
+if [[ "$ENODE" == *"ReferenceError"* ]]; then
+    echo "ERRO: Falha ao obter enode: $ENODE"
     exit 1
 fi
 
 # Substitui [::] pelo IP localhost ou IP da máquina
-# Tenta descobrir o IP da máquina
 HOST_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "127.0.0.1")
-# Se não conseguir, usa localhost
 if [ -z "$HOST_IP" ] || [ "$HOST_IP" == "" ]; then
     HOST_IP="127.0.0.1"
 fi
@@ -161,19 +168,19 @@ echo ""
 
 # Cria o arquivo docker-compose-peer.yml
 echo "[7/8] Criando docker-compose-peer.yml..."
+
+# CORREÇÃO 2: Garante indentação com ESPAÇOS e não TABS
 cat > "$PEER_COMPOSE_FILE" << EOF
 # ===================== NÓ PEER (SEGUNDO NÓ) =====================
-# Este arquivo define o segundo nó Geth que se conecta ao primeiro nó
-
 services:
   geth-peer:
     image: ethereum/client-go:v1.13.15
     container_name: geth-peer
     ports:
-      - "8547:8545"      # HTTP RPC (porta diferente do nó 1)
-      - "8548:8546"      # WebSocket (porta diferente do nó 1)
-      - "30304:30303/udp"  # P2P discovery (porta diferente do nó 1)
-      - "30304:30303"    # P2P TCP (porta diferente do nó 1)
+      - "8547:8545"
+      - "8548:8546"
+      - "30304:30303/udp"
+      - "30304:30303"
     volumes:
       - ./data2:/root/.ethereum
       - ./genesis.json:/genesis.json
@@ -228,7 +235,8 @@ echo ""
 # Aguarda o nó 2 estar pronto
 echo "Aguardando nó 2 estar pronto..."
 for i in {1..30}; do
-    if docker exec geth-peer geth attach --exec "eth.blockNumber" http://localhost:8545 >/dev/null 2>&1; then
+    # CORREÇÃO 1: Usa IPC no segundo nó também
+    if docker exec geth-peer geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc >/dev/null 2>&1; then
         break
     fi
     if [ $i -eq 30 ]; then
@@ -241,8 +249,9 @@ done
 echo ""
 echo "Verificando conexão entre os nós..."
 sleep 3
-PEERS_NODE1=$(docker exec geth-node geth attach --exec "admin.peers.length" http://localhost:8545 2>/dev/null | tr -d ' \n' || echo "0")
-PEERS_NODE2=$(docker exec geth-peer geth attach --exec "admin.peers.length" http://localhost:8545 2>/dev/null | tr -d ' \n' || echo "0")
+# CORREÇÃO 1: IPC para verificação
+PEERS_NODE1=$(docker exec geth-node geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
+PEERS_NODE2=$(docker exec geth-peer geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
 
 echo ""
 echo "========================================"
@@ -260,8 +269,8 @@ echo "- Nó 1 WebSocket: ws://localhost:8546"
 echo "- Nó 2 WebSocket: ws://localhost:8548"
 echo ""
 echo "Comandos úteis:"
-echo "- Ver peers do nó 1: docker exec geth-node geth attach http://localhost:8545 --exec 'admin.peers'"
-echo "- Ver peers do nó 2: docker exec geth-peer geth attach http://localhost:8545 --exec 'admin.peers'"
+echo "- Ver peers do nó 1: docker exec geth-node geth attach /root/.ethereum/geth.ipc --exec 'admin.peers'"
+echo "- Ver peers do nó 2: docker exec geth-peer geth attach /root/.ethereum/geth.ipc --exec 'admin.peers'"
 echo "- Parar nó 2: cd $BLOCKCHAIN_DIR && $DOCKER_COMPOSE -f docker-compose-peer.yml down"
 echo ""
 read -p "Pressione Enter para continuar..."

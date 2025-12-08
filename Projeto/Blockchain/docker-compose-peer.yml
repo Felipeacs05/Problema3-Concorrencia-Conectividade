@@ -1,0 +1,42 @@
+# ===================== NÓ PEER (SEGUNDO NÓ) =====================
+services:
+  geth-peer:
+    image: ethereum/client-go:v1.13.15
+    container_name: geth-peer
+    ports:
+      - "8547:8545"
+      - "8548:8546"
+      - "30304:30303/udp"
+      - "30304:30303"
+    volumes:
+      - ./data2:/root/.ethereum
+      - ./genesis.json:/genesis.json
+      - ./password-peer.txt:/root/.ethereum/password.txt
+    command:
+      - --datadir=/root/.ethereum
+      - --networkid=1337
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.api=eth,net,web3,personal,miner,admin
+      - --http.corsdomain=*
+      - --http.vhosts=*
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.api=eth,net,web3,personal,miner,admin
+      - --ws.origins="*"
+      - --allow-insecure-unlock
+      - --unlock=0xe0d3817738630518cb5c4b28B5347839a0Be57cc
+      - --password=/root/.ethereum/password.txt
+      - --bootnodes=enode://4e9c7da1fbbd144ad75e9bca1fb32e986fe3eaa53d98c5eec1e8671138145ade1f80b08da8e3239d372ddce3ad4aeb95e467dc92756ce8af00deb95b5d868acc@127.0.0.1:30303
+      - --port=30303
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    networks:
+      - peer_network
+
+networks:
+  peer_network:
+    driver: bridge
