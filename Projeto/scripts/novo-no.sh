@@ -114,16 +114,13 @@ echo ""
 echo "[6/8] Criando docker-compose-peer.yml..."
 
 # Usa printf para garantir espaços e não tabs
+# Usa network_mode: host para permitir comunicação direta entre os nós
 cat > "$PEER_COMPOSE_FILE" <<EOF
 services:
   geth-peer:
     image: ethereum/client-go:v1.13.15
     container_name: geth-peer
-    ports:
-      - "8547:8545"
-      - "8548:8546"
-      - "30304:30303/udp"
-      - "30304:30303"
+    network_mode: host
     volumes:
       - ./data2:/root/.ethereum
       - ./genesis.json:/genesis.json
@@ -133,29 +130,23 @@ services:
       - --networkid=1337
       - --http
       - --http.addr=0.0.0.0
-      - --http.port=8545
+      - --http.port=8547
       - --http.api=eth,net,web3,personal,miner,admin
       - --http.corsdomain=*
       - --http.vhosts=*
       - --ws
       - --ws.addr=0.0.0.0
-      - --ws.port=8546
+      - --ws.port=8548
       - --ws.api=eth,net,web3,personal,miner,admin
       - --ws.origins=*
       - --allow-insecure-unlock
       - --unlock=$ADDRESS
       - --password=/root/.ethereum/password.txt
       - --bootnodes=$ENODE
-      - --port=30303
+      - --port=30304
     stdin_open: true
     tty: true
     restart: unless-stopped
-    networks:
-      - peer_network
-
-networks:
-  peer_network:
-    driver: bridge
 EOF
 
 # Copia senha para raiz onde o compose espera

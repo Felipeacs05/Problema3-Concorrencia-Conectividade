@@ -33,9 +33,4 @@ services:
     stdin_open: true
     tty: true
     restart: unless-stopped
-    networks:
-      - peer_network
-
-networks:
-  peer_network:
-    driver: bridge
+    network_mode: host
