@@ -99,21 +99,31 @@ fi
 echo ""
 
 # Verifica conexão P2P entre os nós
-echo "[4/5] Verificando conexão P2P..."
+echo "[5/6] Verificando conexão P2P..."
+
+# Aguarda um pouco para dar tempo da conexão se estabelecer
+sleep 3
 
 if [ "$NODE1_RUNNING" = true ]; then
-    # CORREÇÃO: Usando IPC
-    PEERS_NODE1=$(docker exec geth-node geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
-    if [ -z "$PEERS_NODE1" ] || [ "$PEERS_NODE1" = "" ]; then
-        PEERS_NODE1="0"
-    fi
+    # Tenta múltiplas vezes (conexão pode estar sendo estabelecida)
+    PEERS_NODE1="0"
+    for i in {1..3}; do
+        PEERS_TMP=$(docker exec geth-node geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
+        if [ ! -z "$PEERS_TMP" ] && [ "$PEERS_TMP" != "" ] && [ "$PEERS_TMP" != "null" ]; then
+            PEERS_NODE1="$PEERS_TMP"
+            if [ "$PEERS_NODE1" -gt 0 ]; then
+                break
+            fi
+        fi
+        sleep 2
+    done
     
     if [ "$PEERS_NODE1" -gt 0 ]; then
         echo "✅ Nó 1: Conectado a $PEERS_NODE1 peer(s)"
         
         # Mostra detalhes dos peers via IPC
         PEER_INFO=$(docker exec geth-node geth attach --exec "admin.peers" /root/.ethereum/geth.ipc 2>/dev/null)
-        if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ]; then
+        if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ] && [ "$PEER_INFO" != "null" ]; then
             echo "   Detalhes dos peers:"
             echo "$PEER_INFO" | grep -o '"remoteAddress":"[^"]*"' | sed 's/"remoteAddress":"/   - /' | sed 's/"$//' || true
         fi
@@ -125,18 +135,25 @@ else
 fi
 
 if [ "$NODE2_RUNNING" = true ]; then
-    # CORREÇÃO: Usando IPC
-    PEERS_NODE2=$(docker exec geth-peer geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
-    if [ -z "$PEERS_NODE2" ] || [ "$PEERS_NODE2" = "" ]; then
-        PEERS_NODE2="0"
-    fi
+    # Tenta múltiplas vezes
+    PEERS_NODE2="0"
+    for i in {1..3}; do
+        PEERS_TMP=$(docker exec geth-peer geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
+        if [ ! -z "$PEERS_TMP" ] && [ "$PEERS_TMP" != "" ] && [ "$PEERS_TMP" != "null" ]; then
+            PEERS_NODE2="$PEERS_TMP"
+            if [ "$PEERS_NODE2" -gt 0 ]; then
+                break
+            fi
+        fi
+        sleep 2
+    done
     
     if [ "$PEERS_NODE2" -gt 0 ]; then
         echo "✅ Nó 2: Conectado a $PEERS_NODE2 peer(s)"
         
         # Mostra detalhes dos peers via IPC
         PEER_INFO=$(docker exec geth-peer geth attach --exec "admin.peers" /root/.ethereum/geth.ipc 2>/dev/null)
-        if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ]; then
+        if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ] && [ "$PEER_INFO" != "null" ]; then
             echo "   Detalhes dos peers:"
             echo "$PEER_INFO" | grep -o '"remoteAddress":"[^"]*"' | sed 's/"remoteAddress":"/   - /' | sed 's/"$//' || true
         fi
@@ -149,7 +166,7 @@ fi
 echo ""
 
 # Verifica se os nós se enxergam mutuamente
-echo "[5/5] Verificando conectividade mútua..."
+echo "[6/6] Verificando conectividade mútua..."
 if [ "$NODE1_RUNNING" = true ] && [ "$NODE2_RUNNING" = true ]; then
     if [ "$PEERS_NODE1" -gt 0 ] && [ "$PEERS_NODE2" -gt 0 ]; then
         echo "✅ CONEXÃO ESTABELECIDA: Ambos os nós se enxergam!"
