@@ -307,3 +307,4 @@ echo - Ver peers do no 2: docker exec geth-peer geth attach http://localhost:854
 echo - Parar no 2: cd %BLOCKCHAIN_DIR% ^&^& docker-compose -f docker-compose-peer.yml down
 echo.
 pause
+
