@@ -43,8 +43,9 @@ echo ""
 echo "[2/5] Verificando resposta dos nós..."
 
 if [ "$NODE1_RUNNING" = true ]; then
-    if docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 >/dev/null 2>&1; then
-        BLOCK_NODE1=$(docker exec geth-node geth attach --exec "eth.blockNumber" http://localhost:8545 2>/dev/null | tr -d ' \n')
+    # CORREÇÃO: Usando IPC para evitar erro de admin not defined
+    if docker exec geth-node geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc >/dev/null 2>&1; then
+        BLOCK_NODE1=$(docker exec geth-node geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n')
         echo "✅ Nó 1: RESPONDENDO (Bloco: $BLOCK_NODE1)"
     else
         echo "❌ Nó 1: NÃO RESPONDE"
@@ -56,8 +57,8 @@ else
 fi
 
 if [ "$NODE2_RUNNING" = true ]; then
-    if docker exec geth-peer geth attach --exec "eth.blockNumber" http://localhost:8545 >/dev/null 2>&1; then
-        BLOCK_NODE2=$(docker exec geth-peer geth attach --exec "eth.blockNumber" http://localhost:8545 2>/dev/null | tr -d ' \n')
+    if docker exec geth-peer geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc >/dev/null 2>&1; then
+        BLOCK_NODE2=$(docker exec geth-peer geth attach --exec "eth.blockNumber" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n')
         echo "✅ Nó 2: RESPONDENDO (Bloco: $BLOCK_NODE2)"
     else
         echo "❌ Nó 2: NÃO RESPONDE"
@@ -101,7 +102,8 @@ echo ""
 echo "[4/5] Verificando conexão P2P..."
 
 if [ "$NODE1_RUNNING" = true ]; then
-    PEERS_NODE1=$(docker exec geth-node geth attach --exec "admin.peers.length" http://localhost:8545 2>/dev/null | tr -d ' \n' || echo "0")
+    # CORREÇÃO: Usando IPC
+    PEERS_NODE1=$(docker exec geth-node geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
     if [ -z "$PEERS_NODE1" ] || [ "$PEERS_NODE1" = "" ]; then
         PEERS_NODE1="0"
     fi
@@ -109,8 +111,8 @@ if [ "$NODE1_RUNNING" = true ]; then
     if [ "$PEERS_NODE1" -gt 0 ]; then
         echo "✅ Nó 1: Conectado a $PEERS_NODE1 peer(s)"
         
-        # Mostra detalhes dos peers
-        PEER_INFO=$(docker exec geth-node geth attach --exec "admin.peers" http://localhost:8545 2>/dev/null)
+        # Mostra detalhes dos peers via IPC
+        PEER_INFO=$(docker exec geth-node geth attach --exec "admin.peers" /root/.ethereum/geth.ipc 2>/dev/null)
         if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ]; then
             echo "   Detalhes dos peers:"
             echo "$PEER_INFO" | grep -o '"remoteAddress":"[^"]*"' | sed 's/"remoteAddress":"/   - /' | sed 's/"$//' || true
@@ -123,7 +125,8 @@ else
 fi
 
 if [ "$NODE2_RUNNING" = true ]; then
-    PEERS_NODE2=$(docker exec geth-peer geth attach --exec "admin.peers.length" http://localhost:8545 2>/dev/null | tr -d ' \n' || echo "0")
+    # CORREÇÃO: Usando IPC
+    PEERS_NODE2=$(docker exec geth-peer geth attach --exec "admin.peers.length" /root/.ethereum/geth.ipc 2>/dev/null | tr -d ' \n' || echo "0")
     if [ -z "$PEERS_NODE2" ] || [ "$PEERS_NODE2" = "" ]; then
         PEERS_NODE2="0"
     fi
@@ -131,8 +134,8 @@ if [ "$NODE2_RUNNING" = true ]; then
     if [ "$PEERS_NODE2" -gt 0 ]; then
         echo "✅ Nó 2: Conectado a $PEERS_NODE2 peer(s)"
         
-        # Mostra detalhes dos peers
-        PEER_INFO=$(docker exec geth-peer geth attach --exec "admin.peers" http://localhost:8545 2>/dev/null)
+        # Mostra detalhes dos peers via IPC
+        PEER_INFO=$(docker exec geth-peer geth attach --exec "admin.peers" /root/.ethereum/geth.ipc 2>/dev/null)
         if [ ! -z "$PEER_INFO" ] && [ "$PEER_INFO" != "[]" ]; then
             echo "   Detalhes dos peers:"
             echo "$PEER_INFO" | grep -o '"remoteAddress":"[^"]*"' | sed 's/"remoteAddress":"/   - /' | sed 's/"$//' || true
@@ -158,7 +161,7 @@ if [ "$NODE1_RUNNING" = true ] && [ "$NODE2_RUNNING" = true ]; then
         echo "💡 Dicas para resolver:"
         echo "   1. Verifique se ambos os nós estão na mesma rede (networkid=1337)"
         echo "   2. Verifique se o Nó 2 foi iniciado com --bootnodes apontando para o Nó 1"
-        echo "   3. Execute: docker exec geth-peer geth attach http://localhost:8545 --exec \"admin.addPeer('ENODE_DO_NO_1')\""
+        echo "   3. Execute: ./connect-peer.sh"
     fi
 elif [ "$NODE1_RUNNING" = true ]; then
     echo "ℹ️  Apenas Nó 1 está ativo (modo standalone)"
@@ -181,9 +184,9 @@ echo "  Nó 1: http://localhost:8545"
 echo "  Nó 2: http://localhost:8547"
 echo ""
 echo "Comandos úteis:"
-echo "  Ver peers do Nó 1: docker exec geth-node geth attach http://localhost:8545 --exec 'admin.peers'"
-echo "  Ver peers do Nó 2: docker exec geth-peer geth attach http://localhost:8545 --exec 'admin.peers'"
-echo "  Ver blocos: docker exec geth-node geth attach http://localhost:8545 --exec 'eth.blockNumber'"
-echo "  Ver enode do Nó 1: docker exec geth-node geth attach http://localhost:8545 --exec 'admin.nodeInfo.enode'"
+echo "  Ver peers do Nó 1: docker exec geth-node geth attach /root/.ethereum/geth.ipc --exec 'admin.peers'"
+echo "  Ver peers do Nó 2: docker exec geth-peer geth attach /root/.ethereum/geth.ipc --exec 'admin.peers'"
+echo "  Ver blocos: docker exec geth-node geth attach /root/.ethereum/geth.ipc --exec 'eth.blockNumber'"
+echo "  Ver enode do Nó 1: docker exec geth-node geth attach /root/.ethereum/geth.ipc --exec 'admin.nodeInfo.enode'"
 echo ""
 read -p "Pressione Enter para continuar..."

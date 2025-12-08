@@ -1,4 +1,3 @@
-# ===================== NÓ PEER (SEGUNDO NÓ) =====================
 services:
   geth-peer:
     image: ethereum/client-go:v1.13.15
@@ -25,11 +24,11 @@ services:
       - --ws.addr=0.0.0.0
       - --ws.port=8546
       - --ws.api=eth,net,web3,personal,miner,admin
-      - --ws.origins="*"
+      - --ws.origins=*
       - --allow-insecure-unlock
-      - --unlock=0xe0d3817738630518cb5c4b28B5347839a0Be57cc
+      - --unlock=0x71c8e1e88ec498f1575758d0b1370186fe8781f7
       - --password=/root/.ethereum/password.txt
-      - --bootnodes=enode://4e9c7da1fbbd144ad75e9bca1fb32e986fe3eaa53d98c5eec1e8671138145ade1f80b08da8e3239d372ddce3ad4aeb95e467dc92756ce8af00deb95b5d868acc@127.0.0.1:30303
+      - --bootnodes=enode://12ddd02d53f95e6f6f475e850b950a5b8bce674cd0f43fd928d53e986d974b02b7be91521509befccb971214dfb765d4a1833f307252a9aa8021db0ae86c5a78@172.16.103.6:30303
       - --port=30303
     stdin_open: true
     tty: true
