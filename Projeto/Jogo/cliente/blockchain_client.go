@@ -57,7 +57,7 @@ var (
 	blockchainEnabled bool
 )
 
-// inicializarBlockchain inicializa a conexão com a blockchain
+// TÓPICO 2 - Esta função estabelece a comunicação direta do cliente com um nó da blockchain, permitindo a interação descentralizada sem intermediários via protocolo RPC.
 func inicializarBlockchain() error {
 	// Tenta conectar
 	client, err := ethclient.Dial(rpcURL)

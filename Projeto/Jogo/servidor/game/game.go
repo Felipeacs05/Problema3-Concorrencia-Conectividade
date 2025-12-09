@@ -83,6 +83,7 @@ func (m *Manager) EntrarFila(cliente *tipos.Cliente) {
 }
 
 // CriarSala creates a new game room with two players
+// TÓPICO 4 - A gestão de partidas é iniciada aqui, onde o sistema cria uma sala isolada para os jogadores interagirem, preparando o contexto que posteriormente terá seu resultado registrado no ledger.
 func (m *Manager) CriarSala(j1, j2 *tipos.Cliente) {
 	salaID := fmt.Sprintf("%d", time.Now().UnixNano())
 
@@ -117,6 +118,7 @@ func (m *Manager) CriarSala(j1, j2 *tipos.Cliente) {
 }
 
 // ProcessarCompraPacote handles card package purchase
+// TÓPICO 5 - Esta função orquestra o processo de aquisição de pacotes, garantindo que a solicitação do cliente seja processada e que, no caso de sucesso, os ativos gerados no ledger sejam corretamente atribuídos ao inventário local do jogador.
 func (m *Manager) ProcessarCompraPacote(clienteID string, sala *tipos.Sala) {
 	souLider := m.gameInterface.GetClusterManager().SouLider()
 

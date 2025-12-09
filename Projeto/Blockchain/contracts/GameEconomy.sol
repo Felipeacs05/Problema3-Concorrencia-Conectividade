@@ -20,6 +20,7 @@ pragma solidity ^0.8.19;
  * Representa cartas únicas que não podem ser duplicadas
  */
 interface IERC721 {
+    // TÓPICO 3 - Esta função garante a rastreabilidade dos ativos, permitindo verificar a qualquer momento a propriedade de um token específico registrado no ledger.
     function ownerOf(uint256 tokenId) external view returns (address);
     function transferFrom(address from, address to, uint256 tokenId) external;
     function balanceOf(address owner) external view returns (uint256);
@@ -31,7 +32,8 @@ interface IERC721 {
  * @dev Estrutura que representa uma carta no jogo
  * Cada carta é um NFT único com propriedades específicas
  */
-struct Carta {
+    // TÓPICO 3 - A estrutura Carta define o ativo digital único (NFT), e o mapping 'cartas' garante o registro imutável de suas propriedades no ledger.
+    struct Carta {
     uint256 id;        // ID único do token (NFT)
     string nome;       // Nome da carta (ex: "Dragão", "Guerreiro")
     string naipe;      // Naipe: "Espadas", "Copas", "Ouros", "Paus"
@@ -66,6 +68,7 @@ struct Partida {
 }
 
 // ===================== Contrato Principal =====================
+// TÓPICO 1 - Essa função deixa explicita a arquitetura descentralizada, pois define o contrato inteligente principal que opera na blockchain, eliminando a necessidade de uma autoridade central para a validação das regras econômicas.
 contract GameEconomy {
     // ===================== Variáveis de Estado =====================
     
@@ -106,6 +109,7 @@ contract GameEconomy {
      * @dev Emitido quando uma nova carta é criada (mintada)
      * Permite que clientes escutem e atualizem suas interfaces
      */
+    // TÓPICO 7 - Os eventos permitem que qualquer usuário ou sistema externo audite as ações em tempo real, garantindo a transparência dos dados críticos como criação de ativos.
     event CartaCriada(
         uint256 indexed tokenId,
         address indexed proprietario,
@@ -248,6 +252,7 @@ contract GameEconomy {
      * @return valor Valor/poder da carta gerada
      * @return raridade Raridade da carta gerada
      */
+    // TÓPICO 5 - O uso de blockhash como fonte de entropia nesta função garante que a geração de cartas seja determinística e verificável, mantendo a integridade da mecânica de raridade.
     function _gerarCartaAleatoria(uint256 _seed) internal view returns (
         string memory nome,
         string memory naipe,
@@ -297,6 +302,7 @@ contract GameEconomy {
      * Cada chamada cria exatamente 5 cartas novas e as atribui ao comprador
      * @return tokenIds Array com os IDs das cartas recebidas
      */
+    // TÓPICO 5 - Esta função implementa a mecânica de aquisição de pacotes, garantindo que o pagamento seja processado atomicamente e que as cartas sejam geradas e atribuídas unicamente ao comprador, prevenindo o problema de 'duplo gasto'.
     function comprarPacote() public payable returns (uint256[] memory) {
         // BAREMA ITEM 8: PACOTES - Valida que o pagamento é suficiente
         require(msg.value >= precoPacote, "Valor insuficiente para comprar pacote");
@@ -391,6 +397,7 @@ contract GameEconomy {
      * @param _cartaDesejada ID da carta que deseja receber
      * @return propostaId ID da proposta criada
      */
+    // TÓPICO 6 - A estrutura PropostaTroca e esta função permitem a troca segura de ativos entre jogadores, assegurando que a transferência de propriedade só ocorra se ambas as partes concordarem, registrada de forma transparente na blockchain.
     function criarPropostaTroca(
         address _jogador2,
         uint256 _minhaCarta,
@@ -423,6 +430,7 @@ contract GameEconomy {
      * BAREMA ITEM 8: TROCAS - Executa a troca atômica se ambas as partes aceitarem
      * @param propostaId ID da proposta a ser aceita
      */
+    // TÓPICO 6 - Esta função finaliza o ciclo de vida da troca, executando a transferência atômica dos ativos apenas quando todas as condições de validação são atendidas.
     function aceitarPropostaTroca(uint256 propostaId) public {
         PropostaTroca storage proposta = propostasTroca[propostaId];
         
@@ -542,6 +550,7 @@ contract GameEconomy {
      * @param _jogador2 Endereço do oponente
      * @param _vencedor Endereço do vencedor (address(0) se empate)
      */
+    // TÓPICO 4 - Esta estrutura e função garantem a gestão descentralizada das partidas, registrando imutavelmente no ledger os participantes e o resultado (vencedor), permitindo auditoria histórica.
     function registrarPartida(address _jogador2, address _vencedor) public {
         require(_jogador2 != address(0), "Jogador2 invalido");
         require(_jogador2 != msg.sender, "Nao pode jogar consigo mesmo");

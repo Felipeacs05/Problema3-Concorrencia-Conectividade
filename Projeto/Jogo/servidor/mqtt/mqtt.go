@@ -71,6 +71,7 @@ func NewManager(mi MQTTManagerInterface) *Manager {
 }
 
 // ConectarMQTT establishes MQTT connection
+// ConectarMQTT establishes MQTT connection
 func (m *Manager) ConectarMQTT() error {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(m.mqttInterface.GetBrokerMQTT())

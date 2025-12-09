@@ -4,6 +4,7 @@ import "encoding/json"
 
 // Mensagem é o envelope base para todas as mensagens trocadas entre cliente e servidor
 // Usa um padrão de comando + dados genéricos para flexibilidade
+// Mensagem é o envelope base para todas as mensagens trocadas entre cliente e servidor
 type Mensagem struct {
 	Comando string          `json:"comando"` // Tipo da operação (LOGIN, JOGAR_CARTA, etc.)
 	Dados   json.RawMessage `json:"dados"`   // Payload específico de cada comando (JSON raw para permitir diferentes estruturas)
@@ -13,6 +14,7 @@ type Mensagem struct {
 
 // Carta representa uma carta do jogo com seus atributos
 // Cada carta tem um ID único que a identifica no sistema
+// TÓPICO 3 - A estrutura Carta é a representação em memória do ativo digital, espelhando os dados imutáveis do ledger (ID, raridade, valor) para uso na aplicação cliente/servidor.
 type Carta struct {
 	ID       string `json:"id"`                 // Identificador único da carta no estoque global
 	Nome     string `json:"nome"`               // Nome da carta para exibição (ex: "Dragão", "Guerreiro")

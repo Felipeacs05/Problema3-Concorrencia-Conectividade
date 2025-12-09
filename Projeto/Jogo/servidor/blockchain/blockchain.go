@@ -41,6 +41,7 @@ type Manager struct {
 }
 
 // NewManager cria um novo gerenciador de blockchain
+// TÓPICO 1 - Essa função estabelece a conexão com o nó da blockchain (Geth), integrando a aplicação servidora à arquitetura descentralizada.
 func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string) (*Manager, error) {
 	// Conecta ao cliente Ethereum
 	client, err := ethclient.Dial(rpcURL)
@@ -188,6 +189,7 @@ func NewManager(rpcURL, contractAddressHex, keystorePath, serverPassword string)
 
 // ComprarPacote processa a compra de um pacote de cartas na blockchain
 // Retorna os IDs das cartas criadas
+// TÓPICO 7 - Ao ler os logs de eventos da transação ('CartaCriada'), esta função demonstra a capacidade do sistema de auditar e recuperar informações críticas diretamente do ledger público.
 func (m *Manager) ComprarPacote(jogadorAddress common.Address, valor *big.Int) ([]*big.Int, error) {
 	// Prepara a chamada à função comprarPacote
 	data, err := m.contractABI.Pack("comprarPacote")
@@ -409,6 +411,7 @@ func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, 
 // RegistrarTrocaAdmin registra uma troca de cartas na blockchain usando a conta do servidor (admin)
 // Esta função permite ao servidor registrar trocas em nome dos jogadores, passando os endereços corretos
 // que serão registrados na blockchain para auditabilidade
+// TÓPICO 6 - Esta função permite que o servidor atue como facilitador para registrar trocas seguras no ledger, garantindo que a transferência de propriedade ocorra conforme as regras do contrato inteligente.
 func (m *Manager) RegistrarTrocaAdmin(jogador1, jogador2 common.Address, carta1, carta2 *big.Int) (*big.Int, error) {
 	log.Printf("[BLOCKCHAIN] RegistrarTrocaAdmin: jogador1=%s, jogador2=%s, carta1=%s, carta2=%s",
 		jogador1.Hex(), jogador2.Hex(), carta1.String(), carta2.String())
@@ -487,6 +490,7 @@ func (m *Manager) AceitarPropostaTroca(jogador2 common.Address, propostaID *big.
 
 // RegistrarPartida registra o resultado de uma partida na blockchain
 // Tenta usar registrarPartidaAdmin (onlyOwner) primeiro, se não existir usa registrarPartida
+// TÓPICO 4 - Esta função interage com o contrato para registrar permanentemente o resultado de uma partida, assegurando que o histórico de vitórias seja mantido de forma descentralizada e imutável.
 func (m *Manager) RegistrarPartida(jogador1, jogador2, vencedor common.Address) error {
 	// Tenta usar registrarPartidaAdmin primeiro (onlyOwner - funciona igual às trocas)
 	data, err := m.contractABI.Pack("registrarPartidaAdmin", jogador1, jogador2, vencedor)
@@ -561,7 +565,7 @@ func (m *Manager) VerificarPropriedadeCarta(jogador common.Address, cartaID *big
 	return proprietario == jogador, nil
 }
 
-// enviarTransacao envia uma transação para a blockchain
+// TÓPICO 2 - A comunicação com a blockchain ocorre aqui via RPC, enviando transações que serão propagadas e validadas pelos nós da rede, garantindo a interação distribuída.
 func (m *Manager) enviarTransacao(from common.Address, data []byte, valor *big.Int) (*types.Transaction, error) {
 	// Obtém nonce
 	nonce, err := m.client.PendingNonceAt(context.Background(), from)
