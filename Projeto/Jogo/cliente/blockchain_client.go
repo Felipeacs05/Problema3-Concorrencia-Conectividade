@@ -213,7 +213,7 @@ func carregarCarteira() error {
 	return nil
 }
 
-// comprarPacoteBlockchain compra um pacote de cartas na blockchain
+// TÓPICO 5 - Esta função implementa a aquisição de pacotes diretamente pelo cliente, assinando a transação com sua chave privada para garantir a autoria e evitar duplo gasto, registrando a compra de forma imutável no ledger.
 func comprarPacoteBlockchain() error {
 	fmt.Printf("[DEBUG] comprarPacoteBlockchain() iniciado\n")
 	fmt.Printf("[DEBUG] blockchainEnabled=%v, chavePrivada!=nil=%v\n", blockchainEnabled, chavePrivada != nil)
@@ -453,7 +453,7 @@ func aguardarConfirmacaoBlockchain(txHash common.Hash) (*types.Receipt, error) {
 	return nil, fmt.Errorf("timeout aguardando confirmação")
 }
 
-// CriarPropostaTrocaBlockchain cria uma proposta diretamente pelo cliente
+// TÓPICO 6 - As transações de troca são iniciadas e assinadas pelo próprio jogador, garantindo que a transferência de propriedade dos ativos digitais seja segura, transparente e autorizada pelo dono da chave privada.
 func CriarPropostaTrocaBlockchain(oponenteAddressHex string, minhaCartaID string, cartaDesejadaID string) (string, error) {
 	if !blockchainEnabled || chavePrivada == nil {
 		return "", fmt.Errorf("blockchain não habilitada")
@@ -680,7 +680,7 @@ func obterProprietarioCartaBlockchain(cartaID *big.Int) (common.Address, error) 
 	return common.Address{}, fmt.Errorf("tipo inesperado: %T", values[0])
 }
 
-// AceitarPropostaTrocaBlockchain aceita uma proposta existente
+// TÓPICO 6 - Complementando a troca, o aceite também exige a assinatura do destinatário, fechando o ciclo da transação atômica registrada na blockchain.
 func AceitarPropostaTrocaBlockchain(propostaID string) error {
 	if !blockchainEnabled || chavePrivada == nil {
 		return fmt.Errorf("blockchain não habilitada")

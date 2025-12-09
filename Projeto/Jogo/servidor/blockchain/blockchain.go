@@ -411,7 +411,9 @@ func (m *Manager) CriarPropostaTroca(jogador1, jogador2 common.Address, carta1, 
 // RegistrarTrocaAdmin registra uma troca de cartas na blockchain usando a conta do servidor (admin)
 // Esta função permite ao servidor registrar trocas em nome dos jogadores, passando os endereços corretos
 // que serão registrados na blockchain para auditabilidade
-// TÓPICO 6 - Esta função permite que o servidor atue como facilitador para registrar trocas seguras no ledger, garantindo que a transferência de propriedade ocorra conforme as regras do contrato inteligente.
+// RegistrarTrocaAdmin registra uma troca de cartas na blockchain usando a conta do servidor (admin)
+// Esta função permite ao servidor registrar trocas em nome dos jogadores, passando os endereços corretos
+// que serão registrados na blockchain para auditabilidade
 func (m *Manager) RegistrarTrocaAdmin(jogador1, jogador2 common.Address, carta1, carta2 *big.Int) (*big.Int, error) {
 	log.Printf("[BLOCKCHAIN] RegistrarTrocaAdmin: jogador1=%s, jogador2=%s, carta1=%s, carta2=%s",
 		jogador1.Hex(), jogador2.Hex(), carta1.String(), carta2.String())
